@@ -17,6 +17,30 @@ app.use(express.json());
 // Configure SendGrid
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
+// Warn if SendGrid key is missing so logs show the problem immediately
+if (!process.env.SENDGRID_API_KEY) {
+  console.warn('⚠️ SENDGRID_API_KEY is not set in environment. Emails will fail until this is configured.');
+}
+
+// Debug endpoint to check environment and service status (safe: does NOT return secrets)
+app.get('/api/debug', (req, res) => {
+  res.json({
+    success: true,
+    env: {
+      SENDGRID_SET: !!process.env.SENDGRID_API_KEY,
+      FROM_EMAIL_SET: !!process.env.FROM_EMAIL,
+      NODE_ENV: process.env.NODE_ENV || 'undefined'
+    },
+    endpoints: ['/api/send-otp', '/api/verify-otp', '/api/health']
+  });
+});
+
+// Echo endpoint to help debug incoming requests (does not send email)
+app.post('/api/debug-echo', (req, res) => {
+  console.log('📥 /api/debug-echo received body:', req.body);
+  res.json({ success: true, received: req.body });
+});
+
 // OTP Storage (in-memory)
 const otpStorage = {};
 
@@ -135,9 +159,17 @@ If you didn't request this code, please ignore this email.
     };
   } catch (error) {
     console.error('❌ Error sending OTP email:', error);
+    let errorMsg = '';
+    if (typeof error.message === 'string') {
+      errorMsg = error.message;
+    } else if (error.response?.body) {
+      errorMsg = JSON.stringify(error.response.body);
+    } else {
+      errorMsg = JSON.stringify(error);
+    }
     return {
       success: false,
-      message: error.response?.body || error.message
+      message: errorMsg
     };
   }
 }
@@ -273,6 +305,15 @@ app.get('/', (req, res) => {
 });
 
 // Start server
+// Global error handler to ensure all errors return JSON
+app.use((err, req, res, next) => {
+  console.error('Global error:', err);
+  res.status(500).json({
+    success: false,
+    message: typeof err === 'string' ? err : (err.message || 'Internal server error')
+  });
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 OTP Email Server Started`);
   console.log(`📡 Server running on port ${PORT}`);

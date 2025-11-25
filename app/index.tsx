@@ -41,8 +41,8 @@ const LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
 const MAX_REQUESTS_PER_MINUTE = 5;
 
-// OTP Server URL - USE YOUR RAILWAY URL HERE
-const OTP_SERVER_URL = 'https://rfid-otp-server.onrender.com';
+// OTP Server URL - set to deployed Render URL
+const OTP_SERVER_URL = 'https://rfid-scanner-1.onrender.com';
 
 // Simple emoji-based icon component
 const Icon = ({ name, size = 20, color = '#888', style }: any) => {
@@ -79,6 +79,23 @@ const ParentLoginScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+
+  // Safely parse fetch response bodies. If response isn't valid JSON, return
+  // an object with success=false and the raw text in message to avoid parse errors.
+  const parseResponseSafe = useCallback(async (response: Response) => {
+    let text = '';
+    try {
+      text = await response.text();
+    } catch (e) {
+      return { success: false, message: `Unable to read response body: ${String(e)}` };
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return { success: false, message: text || `Unexpected response (status ${response.status})` };
+    }
+  }, []);
   const [isAccountLocked, setIsAccountLocked] = useState(false);
   const [lockoutTimeRemaining, setLockoutTimeRemaining] = useState(0);
   
@@ -722,7 +739,7 @@ const ParentLoginScreen = () => {
         throw new Error('Cannot connect to email server. Please check your internet connection.');
       }
       
-      const result = await response.json();
+      const result = await parseResponseSafe(response);
       
       if (result.success) {
         setOtpSent(true);
@@ -806,7 +823,7 @@ const ParentLoginScreen = () => {
         throw new Error('Cannot connect to server. Please check your internet connection.');
       }
       
-      const result = await response.json();
+      const result = await parseResponseSafe(response);
       
       if (!result.success) {
         safeSetLoading(false);
@@ -996,7 +1013,7 @@ const ParentLoginScreen = () => {
             throw new Error('Cannot connect to email server. Please check your internet connection.');
           }
 
-          const result = await response.json();
+          const result = await parseResponseSafe(response);
 
           if (!result.success) {
             throw new Error(result.message || 'Failed to send reset code');
