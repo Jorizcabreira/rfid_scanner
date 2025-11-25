@@ -5,20 +5,20 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebas
 import { get, push, ref, set, update } from 'firebase/database';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    BackHandler,
-    Dimensions,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  BackHandler,
+  Dimensions,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 
 import { auth, database } from '../firebaseConfig';
@@ -42,7 +42,7 @@ const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
 const MAX_REQUESTS_PER_MINUTE = 5;
 
 // OTP Server URL - USE YOUR RAILWAY URL HERE
-const OTP_SERVER_URL = 'https://rfid-otp-server-production.up.railway.app';
+const OTP_SERVER_URL = 'https://rfid-otp-server.onrender.com';
 
 // Simple emoji-based icon component
 const Icon = ({ name, size = 20, color = '#888', style }: any) => {
