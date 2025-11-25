@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pickup Monitoring - HCMS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  
+  <style>
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    .animate-fadeIn {
+      animation: fadeIn 0.3s ease-out forwards;
+    }
+    
+    .animate-pulse {
+      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    
+    .card {
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+    
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    
+    .notification-badge {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      background: #ef4444;
+      color: white;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: bold;
+      animation: pulse 2s infinite;
+    }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <!-- Header -->
+  <header class="bg-blue-600 text-white p-4 shadow-lg">
+    <div class="container mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <i class="fas fa-users text-2xl"></i>
+        <div>
+          <h1 class="text-xl font-bold">PICKUP MONITORING</h1>
+          <p class="text-sm text-blue-100">Hosea Christian Mission School</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-4">
+        <!-- Notification Bell -->
+        <div class="relative">
+          <button id="notificationBtn" class="relative p-2 hover:bg-blue-700 rounded-lg transition">
+            <i class="fas fa-bell text-xl"></i>
+            <span id="notificationBadge" class="notification-badge hidden">0</span>
+          </button>
+        </div>
+        <div class="flex items-center gap-2">
+          <i class="fas fa-user-circle text-2xl"></i>
+          <span id="adminEmail" class="text-sm">Admin</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="container mx-auto p-6">
+    <!-- Statistics Cards -->
+    <section class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+      <!-- Total Records -->
+      <div class="card bg-blue-500 text-white rounded-lg p-4 shadow">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm opacity-90">TOTAL RECORDS</p>
+            <p id="totalCount" class="text-3xl font-bold">0</p>
+          </div>
+          <i class="fas fa-list text-4xl opacity-50"></i>
+        </div>
+      </div>
+      
+      <!-- RFID Pickups -->
+      <div class="card bg-green-500 text-white rounded-lg p-4 shadow">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm opacity-90">RFID PICKUPS</p>
+            <p id="rfidPickupCount" class="text-3xl font-bold">0</p>
+          </div>
+          <i class="fas fa-check-circle text-4xl opacity-50"></i>
+        </div>
+      </div>
+      
+      <!-- Manual Confirmations -->
+      <div class="card bg-purple-500 text-white rounded-lg p-4 shadow">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm opacity-90">MANUAL</p>
+            <p id="manualPickupCount" class="text-3xl font-bold">0</p>
+          </div>
+          <i class="fas fa-hand-pointer text-4xl opacity-50"></i>
+        </div>
+      </div>
+
+      <!-- Pending Verification -->
+      <div class="card bg-yellow-500 text-white rounded-lg p-4 shadow relative">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm opacity-90">PENDING</p>
+            <p id="pendingVerificationCount" class="text-3xl font-bold">0</p>
+          </div>
+          <i class="fas fa-clock text-4xl opacity-50"></i>
+        </div>
+        <div id="pendingPulse" class="absolute top-2 right-2 hidden">
+          <span class="flex h-3 w-3">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+          </span>
+        </div>
+      </div>
+      
+      <!-- Waiting -->
+      <div class="card bg-red-500 text-white rounded-lg p-4 shadow">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm opacity-90">WAITING</p>
+            <p id="waitingCount" class="text-3xl font-bold">0</p>
+          </div>
+          <i class="fas fa-hourglass-half text-4xl opacity-50"></i>
+        </div>
+      </div>
+    </section>
+
+    <!-- Filters -->
+    <section class="bg-white rounded-lg shadow p-4 mb-6">
+      <div class="flex flex-wrap gap-4 items-center">
+        <div class="flex items-center gap-2">
+          <i class="fas fa-search text-gray-400"></i>
+          <input 
+            id="searchInput" 
+            type="text" 
+            placeholder="Search student name..." 
+            class="border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-gray-600">Date:</label>
+          <input 
+            id="dateFilter" 
+            type="date" 
+            class="border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-gray-600">Status:</label>
+          <select 
+            id="statusFilter" 
+            class="border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Status</option>
+            <option value="Picked Up">Picked Up</option>
+            <option value="Waiting">Waiting</option>
+            <option value="Pending Verification">Pending Verification</option>
+          </select>
+        </div>
+        
+        <button id="showAllBtn" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm transition">
+          <i class="fas fa-list mr-1"></i> Show All
+        </button>
+        
+        <button id="refreshBtn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm transition">
+          <i class="fas fa-sync-alt mr-1"></i> Refresh
+        </button>
+      </div>
+    </section>
+
+    <!-- Pickup Records Table -->
+    <section class="bg-white rounded-lg shadow">
+      <div class="p-4 border-b">
+        <h2 class="text-lg font-semibold text-gray-800">
+          <i class="fas fa-table mr-2"></i>Pickup Records
+        </h2>
+      </div>
+      
+      <div id="loadingMessage" class="text-center py-8 text-gray-500">
+        <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+        <p>Loading pickup records...</p>
+      </div>
+      
+      <div id="tableContainer" class="overflow-x-auto hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b">
+            <tr>
+              <th class="px-4 py-3 text-left text-gray-700 font-semibold">Student Name</th>
+              <th class="px-4 py-3 text-left text-gray-700 font-semibold">Grade</th>
+              <th class="px-4 py-3 text-left text-gray-700 font-semibold">Date</th>
+              <th class="px-4 py-3 text-left text-gray-700 font-semibold">Time</th>
+              <th class="px-4 py-3 text-left text-gray-700 font-semibold">Picked Up By</th>
+              <th class="px-4 py-3 text-left text-gray-700 font-semibold">Status</th>
+              <th class="px-4 py-3 text-center text-gray-700 font-semibold">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pickupTableBody"></tbody>
+        </table>
+      </div>
+      
+      <div id="noDataMessage" class="text-center py-12 text-gray-500 hidden">
+        <i class="fas fa-inbox text-5xl mb-3 text-gray-300"></i>
+        <p class="text-lg">No pickup records found</p>
+      </div>
+      
+      <div class="p-4 border-t bg-gray-50 flex justify-between items-center">
+        <button id="prevBtn" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
+          <i class="fas fa-chevron-left mr-1"></i> Previous
+        </button>
+        <span id="pageIndicator" class="text-sm text-gray-600">Page 1 of 1</span>
+        <button id="nextBtn" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
+          Next <i class="fas fa-chevron-right ml-1"></i>
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="fixed top-4 right-4 space-y-2 z-50"></div>
+
+  <!-- Notification Modal -->
+  <div id="notificationModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-semibold flex items-center gap-2">
+          <i class="fas fa-bell text-yellow-500"></i>
+          Admin Notifications
+        </h3>
+        <button id="closeNotificationModal" class="text-gray-500 hover:text-gray-700">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div id="notificationList" class="space-y-2 max-h-96 overflow-y-auto"></div>
+    </div>
+  </div>
+
+  <!-- Details Modal -->
+  <div id="detailsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-lg p-6 max-w-lg w-full mx-4 shadow-xl">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-semibold">Pickup Details</h3>
+        <button id="closeDetailsModal" class="text-gray-500 hover:text-gray-700">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div id="detailsContent"></div>
+    </div>
+  </div>
+
+  <script>
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyDz7HMpobu3JxTT_m2lnLIGeaA6yKOFj_g",
+      authDomain: "rfidattendance-595f4.firebaseapp.com",
+      databaseURL: "https://rfidattendance-595f4-default-rtdb.firebaseio.com",
+      projectId: "rfidattendance-595f4",
+      storageBucket: "rfidattendance-595f4.appspot.com",
+      messagingSenderId: "54831415106",
+      appId: "1:54831415106:web:6ccfff82ff6c85787652db"
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const auth = firebase.auth();
+
+    // Global Variables
+    let allPickups = [];
+    let filteredPickups = [];
+    let adminNotifications = [];
+    let currentPage = 1;
+    const rowsPerPage = 10;
+
+    // DOM Elements
+    const loadingMessage = document.getElementById('loadingMessage');
+    const tableContainer = document.getElementById('tableContainer');
+    const noDataMessage = document.getElementById('noDataMessage');
+    const pickupTableBody = document.getElementById('pickupTableBody');
+    const searchInput = document.getElementById('searchInput');
+    const dateFilter = document.getElementById('dateFilter');
+    const statusFilter = document.getElementById('statusFilter');
+    const showAllBtn = document.getElementById('showAllBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const pageIndicator = document.getElementById('pageIndicator');
+    const notificationBtn = document.getElementById('notificationBtn');
+    const notificationBadge = document.getElementById('notificationBadge');
+    const notificationModal = document.getElementById('notificationModal');
+    const closeNotificationModal = document.getElementById('closeNotificationModal');
+    const notificationList = document.getElementById('notificationList');
+    const detailsModal = document.getElementById('detailsModal');
+    const closeDetailsModal = document.getElementById('closeDetailsModal');
+    const detailsContent = document.getElementById('detailsContent');
+
+    // Statistics Elements
+    const totalCount = document.getElementById('totalCount');
+    const rfidPickupCount = document.getElementById('rfidPickupCount');
+    const manualPickupCount = document.getElementById('manualPickupCount');
+    const pendingVerificationCount = document.getElementById('pendingVerificationCount');
+    const waitingCount = document.getElementById('waitingCount');
+    const pendingPulse = document.getElementById('pendingPulse');
+
+    // Initialize date filter to today
+    dateFilter.value = new Date().toISOString().slice(0, 10);
+
+    // Utility Functions
+    function showToast(message, type = 'info') {
+      const toastContainer = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      
+      const colors = {
+        success: 'bg-green-500',
+        error: 'bg-red-500',
+        warning: 'bg-yellow-500',
+        info: 'bg-blue-500'
+      };
+      
+      const icons = {
+        success: 'fa-check-circle',
+        error: 'fa-exclamation-circle',
+        warning: 'fa-exclamation-triangle',
+        info: 'fa-info-circle'
+      };
+      
+      toast.className = `${colors[type]} text-white px-4 py-3 rounded-lg shadow-lg animate-fadeIn flex items-center gap-2`;
+      toast.innerHTML = `
+        <i class="fas ${icons[type]}"></i>
+        <span>${message}</span>
+      `;
+      
+      toastContainer.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(100px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    function formatDate(timestamp) {
+      if (!timestamp) return '--';
+      const date = new Date(parseInt(timestamp));
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function formatTime(timestamp) {
+      if (!timestamp) return '--';
+      const date = new Date(parseInt(timestamp));
+      return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+
+    function getTodayString() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    // Real-time Admin Notifications Listener
+    function setupAdminNotifications() {
+      console.log('📡 Setting up admin notifications listener...');
+      
+      const adminNotificationsRef = db.ref('adminNotifications');
+      
+      adminNotificationsRef.on('child_added', (snapshot) => {
+        const notification = snapshot.val();
+        notification.id = snapshot.key;
+        
+        if (notification.status === 'pending_verification') {
+          console.log('🔔 New admin notification:', notification);
+          adminNotifications.unshift(notification);
+          updateNotificationBadge();
+          
+          // Show toast for new pending verification
+          showToast(`⚠️ New manual pickup: ${notification.studentName}`, 'warning');
+          
+          // Play notification sound
+          playNotificationSound();
+          
+          // Refresh pickup data to show the pending record
+          loadAllPickups();
+        }
+      });
+      
+      adminNotificationsRef.on('child_changed', (snapshot) => {
+        const notification = snapshot.val();
+        notification.id = snapshot.key;
+        
+        const index = adminNotifications.findIndex(n => n.id === notification.id);
+        if (index !== -1) {
+          adminNotifications[index] = notification;
+          updateNotificationBadge();
+        }
+      });
+    }
+
+    function playNotificationSound() {
+      // Create audio context for notification sound
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+      } catch (e) {
+        console.log('Could not play notification sound');
+      }
+    }
+
+    function updateNotificationBadge() {
+      const pendingCount = adminNotifications.filter(n => n.status === 'pending_verification').length;
+      
+      if (pendingCount > 0) {
+        notificationBadge.textContent = pendingCount;
+        notificationBadge.classList.remove('hidden');
+      } else {
+        notificationBadge.classList.add('hidden');
+      }
+    }
+
+    // Load All Pickups
+    async function loadAllPickups() {
+      console.log('🔄 Loading all pickup records...');
+      loadingMessage.classList.remove('hidden');
+      tableContainer.classList.add('hidden');
+      noDataMessage.classList.add('hidden');
+      
+      try {
+        const pickupsSnapshot = await db.ref('pickups').once('value');
+        const pickupsData = pickupsSnapshot.val();
+        
+        allPickups = [];
+        
+        if (pickupsData) {
+          Object.keys(pickupsData).forEach(date => {
+            const datePickups = pickupsData[date];
+            Object.keys(datePickups).forEach(studentId => {
+              const pickup = datePickups[studentId];
+              allPickups.push({
+                ...pickup,
+                pickupDate: date,
+                studentId: studentId
+              });
+            });
+          });
+        }
+        
+        // Sort by most recent
+        allPickups.sort((a, b) => {
+          const timeA = a.timeOut || a.timeIn || 0;
+          const timeB = b.timeOut || b.timeIn || 0;
+          return timeB - timeA;
+        });
+        
+        console.log(`✅ Loaded ${allPickups.length} pickup records`);
+        
+        loadingMessage.classList.add('hidden');
+        applyFilters();
+        
+      } catch (error) {
+        console.error('❌ Error loading pickups:', error);
+        loadingMessage.classList.add('hidden');
+        showToast('Error loading pickup records', 'error');
+      }
+    }
+
+    // Apply Filters
+    function applyFilters() {
+      const selectedDate = dateFilter.value;
+      const selectedStatus = statusFilter.value;
+      const searchTerm = searchInput.value.toLowerCase();
+      
+      filteredPickups = allPickups.filter(pickup => {
+        const dateMatch = !selectedDate || pickup.pickupDate === selectedDate;
+        
+        let statusMatch = true;
+        if (selectedStatus !== 'all') {
+          if (selectedStatus === 'Pending Verification') {
+            statusMatch = pickup.parentRfid === 'manual_confirmation_pending';
+          } else {
+            statusMatch = pickup.status === selectedStatus;
+          }
+        }
+        
+        const searchMatch = !searchTerm || 
+          (pickup.studentName && pickup.studentName.toLowerCase().includes(searchTerm)) ||
+          (pickup.parentName && pickup.parentName.toLowerCase().includes(searchTerm));
+        
+        return dateMatch && statusMatch && searchMatch;
+      });
+      
+      updateStatistics();
+      currentPage = 1;
+      renderTable();
+    }
+
+    // Update Statistics
+    function updateStatistics() {
+      totalCount.textContent = filteredPickups.length;
+      
+      const rfid = filteredPickups.filter(p => 
+        p.status === 'Picked Up' && p.parentRfid && 
+        p.parentRfid !== 'manual_confirmation' && 
+        p.parentRfid !== 'manual_update' && 
+        p.parentRfid !== 'manual_confirmation_pending'
+      ).length;
+      
+      const manual = filteredPickups.filter(p => 
+        p.status === 'Picked Up' && p.parentRfid === 'manual_confirmation'
+      ).length;
+      
+      const pending = filteredPickups.filter(p => 
+        p.parentRfid === 'manual_confirmation_pending'
+      ).length;
+      
+      const waiting = filteredPickups.filter(p => 
+        p.status === 'Waiting'
+      ).length;
+      
+      rfidPickupCount.textContent = rfid;
+      manualPickupCount.textContent = manual;
+      pendingVerificationCount.textContent = pending;
+      waitingCount.textContent = waiting;
+      
+      // Show pulse animation if there are pending verifications
+      if (pending > 0) {
+        pendingPulse.classList.remove('hidden');
+      } else {
+        pendingPulse.classList.add('hidden');
+      }
+    }
+
+    // Render Table
+    function renderTable() {
+      pickupTableBody.innerHTML = '';
+      
+      if (filteredPickups.length === 0) {
+        tableContainer.classList.add('hidden');
+        noDataMessage.classList.remove('hidden');
+        return;
+      }
+      
+      tableContainer.classList.remove('hidden');
+      noDataMessage.classList.add('hidden');
+      
+      const totalPages = Math.ceil(filteredPickups.length / rowsPerPage);
+      const startIndex = (currentPage - 1) * rowsPerPage;
+      const endIndex = startIndex + rowsPerPage;
+      const pagePickups = filteredPickups.slice(startIndex, endIndex);
+      
+      pagePickups.forEach(pickup => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b hover:bg-gray-50';
+        
+        const isPending = pickup.parentRfid === 'manual_confirmation_pending';
+        const isManual = pickup.parentRfid === 'manual_confirmation';
+        const isPickedUp = pickup.status === 'Picked Up';
+        
+        let statusBadge = '';
+        if (isPending) {
+          statusBadge = '<span class="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1"><i class="fas fa-clock"></i> Pending Verification</span>';
+        } else if (isManual) {
+          statusBadge = '<span class="bg-purple-500 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1"><i class="fas fa-user-check"></i> Manual</span>';
+        } else if (isPickedUp) {
+          statusBadge = '<span class="bg-green-500 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1"><i class="fas fa-check"></i> Picked Up</span>';
+        } else {
+          statusBadge = '<span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1"><i class="fas fa-hourglass"></i> Waiting</span>';
+        }
+        
+        tr.innerHTML = `
+          <td class="px-4 py-3 font-medium">${pickup.studentName || 'Unknown'}</td>
+          <td class="px-4 py-3">${pickup.gradeLevel || 'N/A'}</td>
+          <td class="px-4 py-3">${pickup.pickupDate}</td>
+          <td class="px-4 py-3">${isPickedUp ? formatTime(pickup.timeOut) : '--'}</td>
+          <td class="px-4 py-3">${isPickedUp ? pickup.parentName : '--'}</td>
+          <td class="px-4 py-3">${statusBadge}</td>
+          <td class="px-4 py-3">
+            <div class="flex justify-center gap-2">
+              ${isPending ? `
+                <button onclick="approvePickup('${pickup.studentId}', '${pickup.pickupDate}')" 
+                        class="bg-green-500 hover:bg-green-600 text-white text-xs px-3 py-1 rounded transition flex items-center gap-1">
+                  <i class="fas fa-check"></i> Approve
+                </button>
+                <button onclick="rejectPickup('${pickup.studentId}', '${pickup.pickupDate}')" 
+                        class="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1 rounded transition flex items-center gap-1">
+                  <i class="fas fa-times"></i> Reject
+                </button>
+              ` : ''}
+              <button onclick="viewDetails('${pickup.studentId}', '${pickup.pickupDate}')" 
+                      class="bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded transition flex items-center gap-1">
+                <i class="fas fa-info"></i> Details
+              </button>
+            </div>
+          </td>
+        `;
+        
+        pickupTableBody.appendChild(tr);
+      });
+      
+      // Update pagination
+      pageIndicator.textContent = `Page ${currentPage} of ${totalPages}`;
+      prevBtn.disabled = currentPage === 1;
+      nextBtn.disabled = currentPage === totalPages;
+    }
+
+    // Approve Pickup
+    window.approvePickup = async function(studentId, pickupDate) {
+      if (!confirm('Are you sure you want to APPROVE this manual pickup?')) return;
+      
+      try {
+        const pickupRef = db.ref(`pickups/${pickupDate}/${studentId}`);
+        const snapshot = await pickupRef.once('value');
+        const pickup = snapshot.val();
+        
+        await pickupRef.update({
+          status: 'Picked Up',
+          parentRfid: 'manual_confirmation',
+          timeOut: Date.now(),
+          manualConfirmation: {
+            ...pickup.manualConfirmation,
+            adminVerified: true,
+            adminVerificationTime: Date.now(),
+            adminAction: 'approved'
+          }
+        });
+        
+        showToast(`✅ Pickup approved for ${pickup.studentName}`, 'success');
+        loadAllPickups();
+        
+      } catch (error) {
+        console.error('Error approving pickup:', error);
+        showToast('Error approving pickup', 'error');
+      }
+    };
+
+    // Reject Pickup
+    window.rejectPickup = async function(studentId, pickupDate) {
+      if (!confirm('Are you sure you want to REJECT this manual pickup?')) return;
+      
+      try {
+        const pickupRef = db.ref(`pickups/${pickupDate}/${studentId}`);
+        const snapshot = await pickupRef.once('value');
+        const pickup = snapshot.val();
+        
+        await pickupRef.update({
+          status: 'Waiting',
+          parentRfid: '',
+          parentName: '',
+          manualConfirmation: {
+            ...pickup.manualConfirmation,
+            adminVerified: false,
+            adminRejectionTime: Date.now(),
+            adminAction: 'rejected'
+          }
+        });
+        
+        showToast(`❌ Pickup rejected for ${pickup.studentName}`, 'error');
+        loadAllPickups();
+        
+      } catch (error) {
+        console.error('Error rejecting pickup:', error);
+        showToast('Error rejecting pickup', 'error');
+      }
+    };
+
+    // View Details
+    window.viewDetails = function(studentId, pickupDate) {
+      const pickup = allPickups.find(p => p.studentId === studentId && p.pickupDate === pickupDate);
+      if (!pickup) return;
+      
+      let html = `
+        <div class="space-y-3">
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            <div><strong>Student:</strong> ${pickup.studentName}</div>
+            <div><strong>Grade:</strong> ${pickup.gradeLevel}</div>
+            <div><strong>Date:</strong> ${pickup.pickupDate}</div>
+            <div><strong>Status:</strong> ${pickup.status}</div>
+          </div>
+      `;
+      
+      if (pickup.status === 'Picked Up' || pickup.parentRfid === 'manual_confirmation_pending') {
+        html += `
+          <div class="border-t pt-3 text-sm">
+            <div><strong>Picked Up By:</strong> ${pickup.parentName}</div>
+            <div><strong>Time:</strong> ${formatTime(pickup.timeOut)}</div>
+            <div><strong>Method:</strong> ${
+              pickup.parentRfid === 'manual_confirmation_pending' ? 'Manual (Pending)' :
+              pickup.parentRfid === 'manual_confirmation' ? 'Manual Confirmation' :
+              'RFID Scan'
+            }</div>
+          </div>
+        `;
+        
+        if (pickup.manualConfirmation) {
+          html += `
+            <div class="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm">
+              <strong>Manual Confirmation Details:</strong>
+              <div class="mt-2">
+                <div><strong>Reason:</strong> ${pickup.manualConfirmation.reason || 'N/A'}</div>
+                <div><strong>Notes:</strong> ${pickup.manualConfirmation.notes || 'N/A'}</div>
+                <div><strong>Time:</strong> ${formatTime(pickup.manualConfirmation.confirmationTime)}</div>
+                ${pickup.manualConfirmation.confirmedViaNotification ? 
+                  '<div class="text-blue-600 font-semibold mt-2">✓ Confirmed via notification</div>' : ''}
+              </div>
+            </div>
+          `;
+        }
+      }
+      
+      html += '</div>';
+      
+      detailsContent.innerHTML = html;
+      detailsModal.classList.remove('hidden');
+      detailsModal.classList.add('flex');
+    };
+
+    // Event Listeners
+    searchInput.addEventListener('input', applyFilters);
+    dateFilter.addEventListener('change', applyFilters);
+    statusFilter.addEventListener('change', applyFilters);
+    showAllBtn.addEventListener('click', () => {
+      dateFilter.value = '';
+      statusFilter.value = 'all';
+      searchInput.value = '';
+      applyFilters();
+      showToast('Showing all records', 'info');
+    });
+    refreshBtn.addEventListener('click', () => {
+      loadAllPickups();
+      showToast('Data refreshed', 'success');
+    });
+    
+    prevBtn.addEventListener('click', () => {
+      if (currentPage > 1) {
+        currentPage--;
+        renderTable();
+      }
+    });
+    
+    nextBtn.addEventListener('click', () => {
+      const totalPages = Math.ceil(filteredPickups.length / rowsPerPage);
+      if (currentPage < totalPages) {
+        currentPage++;
+        renderTable();
+      }
+    });
+    
+    notificationBtn.addEventListener('click', () => {
+      notificationModal.classList.remove('hidden');
+      notificationModal.classList.add('flex');
+      displayNotifications();
+    });
+    
+    closeNotificationModal.addEventListener('click', () => {
+      notificationModal.classList.add('hidden');
+      notificationModal.classList.remove('flex');
+    });
+    
+    closeDetailsModal.addEventListener('click', () => {
+      detailsModal.classList.add('hidden');
+      detailsModal.classList.remove('flex');
+    });
+
+    function displayNotifications() {
+      notificationList.innerHTML = '';
+      
+      if (adminNotifications.length === 0) {
+        notificationList.innerHTML = '<p class="text-gray-500 text-center py-4">No notifications</p>';
+        return;
+      }
+      
+      adminNotifications.forEach(notif => {
+        const div = document.createElement('div');
+        div.className = 'border rounded p-3 hover:bg-gray-50';
+        div.innerHTML = `
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="font-semibold text-sm">${notif.studentName}</p>
+              <p class="text-xs text-gray-600">Manual pickup by ${notif.parentName}</p>
+              <p class="text-xs text-gray-500">${formatTime(notif.timestamp)}</p>
+            </div>
+            <span class="text-xs px-2 py-1 rounded ${
+              notif.status === 'pending_verification' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'
+            }">
+              ${notif.status}
+            </span>
+          </div>
+        `;
+        notificationList.appendChild(div);
+      });
+    }
+
+    // Initialize
+    function initializeApp() {
+      auth.onAuthStateChanged(user => {
+        if (!user) {
+          window.location.href = 'index.html';
+          return;
+        }
+        
+        document.getElementById('adminEmail').textContent = user.email;
+        
+        // Check if admin
+        db.ref(`users/${user.uid}/role`).once('value').then(snap => {
+          const role = snap.val();
+          if (role !== 'admin') {
+            alert('❌ Access denied. Admin only.');
+            window.location.href = 'index.html';
+          } else {
+            setupAdminNotifications();
+            loadAllPickups();
+            showToast('✅ Admin pickup monitoring loaded', 'success');
+          }
+        });
+      });
+    }
+
+    window.addEventListener('load', initializeApp);
+  </script>
+</body>
+</html>

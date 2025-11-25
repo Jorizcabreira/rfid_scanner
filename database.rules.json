@@ -1,0 +1,458 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    
+    ".indexOn": ["timestamp", "date", "status", "type", "createdAt"],
+
+    "alertLogs": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp", "type", "studentId", "systemActive"]
+    },
+
+    "parentNotifications": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp", "type", "studentRfid", "read", "urgent"],
+      "$studentRfid": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$notificationId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    "messageNotifications": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp", "type", "studentId", "read", "urgent"],
+      "$studentId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$notificationId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    "adminNotifications": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp", "type", "status", "urgency", "studentId"],
+      "$notificationId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+
+    "users": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["role", "email", "parentUid", "studentId", "createdAt", "name"],
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "recentActivities": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        },
+        "expoPushToken": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    "students": {
+      ".read": "true",
+      ".write": "auth != null",
+      ".indexOn": ["gradeLevel", "rfid", "studentName", "status", "createdAt"],
+      "$studentId": {
+        ".read": "true",
+        ".write": "auth != null"
+      }
+    },
+
+    "parents": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["parentUid", "email", "userId", "name", "createdAt"]
+    },
+
+    "attendanceLogs": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["date", "status", "timeIn", "studentName", "grade", "timestamp"],
+      "$rfid": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$date": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    "pickups": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["date", "status", "parentRfid", "timeOut", "studentName"],
+      "$date": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$studentRfid": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    "messages": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp"],
+      "$studentId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".indexOn": ["timestamp", "sender", "read"],
+        "$messageId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    "system": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "parentLoginLog": {
+      ".read": "auth != null",
+      ".write": "true"
+    },
+
+    "passwordResetRequests": {
+      ".read": "auth != null",
+      ".write": "true"
+    },
+
+    "passwordResetLogs": {
+      ".read": "auth != null",
+      ".write": "true",
+      ".indexOn": ["timestamp", "email", "success"]
+    },
+
+    "tempPasswordResetRequests": {
+      ".read": "auth != null",
+      ".write": "true"
+    },
+
+    "signupAudit": {
+      ".read": "auth != null",
+      ".write": "true"
+    },
+
+    "signupAttempts": {
+      ".read": "auth != null",
+      ".write": "true"
+    },
+
+    "reports": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "suspiciousScans": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "auditLogs": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "teachers": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "adminTeacherChat": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "parentLogs": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "securityLogs": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "activityLogs": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "systemLogs": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "notifications": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp", "toParentId", "sent", "urgent"],
+      "$notificationId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+
+    "parentReminders": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "reminders": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "scheduledTasks": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "systemSettings": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "reminderQueue": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "parentsByRfid": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "parentStudents": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "autoIds": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "temp": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "publicRequests": {
+      ".read": "auth != null",
+      ".write": "true"
+    },
+
+    "emergencyRequests": {
+      ".read": "auth != null",
+      ".write": "true"
+    },
+
+    "appSettings": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "debugLogs": {
+      ".read": "auth != null",
+      ".write": "true"
+    },
+
+    "errorLogs": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "lostAndFound": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "loginAttempts": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp", "success", "userId"],
+      "$userId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".indexOn": ["timestamp", "success"]
+      }
+    },
+
+    "invalidAttempts": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "suspiciousAttempts": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "parentSuspiciousLog": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "security": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "manualPickupConfirmations": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "backgroundTasks": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "pushTokens": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$userId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+
+    "expoPushTokens": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$userId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+
+    "otpVerifications": {
+      ".read": "true",
+      ".write": "true",
+      ".indexOn": ["createdAt", "expiresAt", "verified"],
+      "$emailKey": {
+        ".read": "true",
+        ".write": "true"
+      }
+    },
+
+    "testData": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "pickups": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$date": {
+          ".read": "auth != null",
+          ".write": "auth != null",
+          "$studentRfid": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        }
+      }
+    },
+
+    "development": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "pickups": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$date": {
+          ".read": "auth != null",
+          ".write": "auth != null",
+          "$studentRfid": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        }
+      }
+    },
+
+    "dev_pickups": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$date": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$studentRfid": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    "simulation": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "pickups": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$date": {
+          ".read": "auth != null",
+          ".write": "auth != null",
+          "$studentRfid": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        }
+      }
+    },
+
+    "teacherNotifications": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp", "type", "studentId", "read"],
+      "$teacherId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$notificationId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+
+    "admins": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "attendance": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$date": {
+        "$studentId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    }
+  }
+}
