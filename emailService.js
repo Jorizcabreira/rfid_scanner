@@ -180,9 +180,31 @@ If you didn't request this code, please ignore this email.
 © ${new Date().getFullYear()} RFID Attendance System
       `
     };
+    // Attach optional reply-to if configured
+    if (process.env.REPLY_TO_EMAIL) {
+      msg.reply_to = { email: process.env.REPLY_TO_EMAIL };
+    }
 
-    await sgMail.send(msg);
-    console.log(`✅ OTP sent successfully to ${email}`);
+    const sgResponse = await sgMail.send(msg);
+
+    // sgMail.send returns an array for legacy compatibility; take first item
+    const firstResp = Array.isArray(sgResponse) ? sgResponse[0] : sgResponse;
+
+    // Log concise SendGrid response info (status and headers) to help track delivery
+    try {
+      const statusCode = firstResp && (firstResp.statusCode || firstResp.status);
+      const headers = firstResp && firstResp.headers ? firstResp.headers : {};
+      console.log(`✅ OTP sent successfully to ${email} (status: ${statusCode})`);
+      // Log message id if available in headers (don't log API keys)
+      if (headers['x-message-id'] || headers['x-msg-id'] || headers['x-sendgrid-request-id'] || headers['x-request-id']) {
+        console.log('   SendGrid headers:', {
+          'x-message-id': headers['x-message-id'] || headers['x-msg-id'],
+          'x-request-id': headers['x-sendgrid-request-id'] || headers['x-request-id']
+        });
+      }
+    } catch (err) {
+      console.log('✅ OTP sent (response parsing failed):', err);
+    }
     
     return {
       success: true,
