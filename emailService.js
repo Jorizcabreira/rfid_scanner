@@ -41,6 +41,37 @@ app.post('/api/debug-echo', (req, res) => {
   res.json({ success: true, received: req.body });
 });
 
+// Validate SendGrid API key by making a minimal authenticated request
+app.get('/api/sendgrid-validate', async (req, res) => {
+  try {
+    if (!process.env.SENDGRID_API_KEY) {
+      return res.status(400).json({ success: false, message: 'SENDGRID_API_KEY not configured' });
+    }
+
+    // Use the SendGrid user/account endpoint to verify the key without exposing response body
+    const fetchOptions = {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    };
+
+    const resp = await fetch('https://api.sendgrid.com/v3/user/account', fetchOptions);
+    const status = resp.status;
+
+    if (status >= 200 && status < 300) {
+      return res.json({ success: true, status, message: 'SendGrid API key appears valid' });
+    }
+
+    // Do not return SendGrid response body (may contain sensitive info). Give concise message.
+    return res.status(status).json({ success: false, status, message: `SendGrid responded with status ${status}` });
+  } catch (error) {
+    console.error('❌ Error validating SendGrid API key:', error);
+    return res.status(500).json({ success: false, message: 'Error validating SendGrid API key' });
+  }
+});
+
 // OTP Storage (in-memory)
 const otpStorage = {};
 
@@ -299,7 +330,9 @@ app.get('/', (req, res) => {
     endpoints: {
       'POST /api/send-otp': 'Send OTP to email',
       'POST /api/verify-otp': 'Verify OTP code',
-      'GET /api/health': 'Health check'
+      'GET /api/health': 'Health check',
+      'GET /api/debug': 'Environment debug (safe)',
+      'GET /api/sendgrid-validate': 'Validate SendGrid API key (no secret exposure)'
     }
   });
 });
@@ -322,6 +355,8 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  POST http://localhost:${PORT}/api/send-otp`);
   console.log(`  POST http://localhost:${PORT}/api/verify-otp`);
   console.log(`  GET  http://localhost:${PORT}/api/health`);
+  console.log(`  GET  http://localhost:${PORT}/api/debug`);
+  console.log(`  GET  http://localhost:${PORT}/api/sendgrid-validate`);
 });
 
 module.exports = app;
