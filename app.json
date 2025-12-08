@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "rfid_scanner",
-    "slug": "rfid_scanner_v2",
+    "slug": "rfid_scanner",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
