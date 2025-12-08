@@ -6,19 +6,108 @@ import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 
 import { off, onValue, ref, update } from 'firebase/database';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth, database } from '../firebaseConfig'; // ✅ FIXED: Use 'database' instead of 'db'
+import { auth, database } from '../firebaseConfig';
+
+// Design System Constants
+const COLORS = {
+  primary: '#1999e8',
+  primaryDark: '#1488d0',
+  primaryLight: '#2da8f0',
+  primaryGradient: ['#1999e8', '#1488d0'] as const,
+  
+  success: '#10b981',
+  successLight: '#d1fae5',
+  successDark: '#059669',
+  warning: '#f59e0b',
+  warningLight: '#fef3c7',
+  warningDark: '#d97706',
+  error: '#ef4444',
+  errorLight: '#fee2e2',
+  errorDark: '#dc2626',
+  info: '#06b6d4',
+  infoLight: '#cffafe',
+  infoDark: '#0891b2',
+  
+  white: '#ffffff',
+  gray50: '#f9fafb',
+  gray100: '#f3f4f6',
+  gray200: '#e5e7eb',
+  gray300: '#d1d5db',
+  gray400: '#9ca3af',
+  gray500: '#6b7280',
+  gray600: '#4b5563',
+  gray700: '#374151',
+  gray800: '#1f2937',
+  gray900: '#111827',
+  
+  background: '#f8fafc',
+  card: '#ffffff',
+  cardDark: '#f8fafc',
+};
+
+const SPACING = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+};
+
+const TYPOGRAPHY = {
+  xs: { fontSize: 10, lineHeight: 14, fontFamily: 'System' },
+  sm: { fontSize: 12, lineHeight: 16, fontFamily: 'System' },
+  base: { fontSize: 14, lineHeight: 20, fontFamily: 'System' },
+  lg: { fontSize: 16, lineHeight: 22, fontFamily: 'System' },
+  xl: { fontSize: 18, lineHeight: 24, fontFamily: 'System' },
+  '2xl': { fontSize: 20, lineHeight: 26, fontFamily: 'System' },
+  '3xl': { fontSize: 24, lineHeight: 30, fontFamily: 'System' },
+};
+
+const BORDER_RADIUS = {
+  sm: 6,
+  md: 10,
+  lg: 14,
+  xl: 18,
+  '2xl': 22,
+  full: 999,
+};
+
+const SHADOWS = {
+  sm: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  md: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  lg: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+};
 
 interface Guardian {
   address: string;
@@ -26,6 +115,7 @@ interface Guardian {
   email: string;
   name: string;
   rfid: string;
+  relationship?: string;
 }
 
 interface UserInfo {
@@ -48,10 +138,10 @@ const ProfileScreen = () => {
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
 
   const handleChangePhoto = async () => {
     try {
-      // Request permission
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
       if (!permissionResult.granted) {
@@ -59,7 +149,6 @@ const ProfileScreen = () => {
         return;
       }
 
-      // Launch image picker
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -78,7 +167,6 @@ const ProfileScreen = () => {
 
         const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
         
-        // Update Firebase
         const userRef = ref(database, `users/${user.uid}`);
         await update(userRef, {
           photoBase64: base64Image,
@@ -105,7 +193,6 @@ const ProfileScreen = () => {
           style: "destructive",
           onPress: async () => {
             try {
-              // Clear push tokens from Firebase before logging out
               const user = auth.currentUser;
               if (user) {
                 console.log('🧹 Clearing push tokens for user:', user.uid);
@@ -154,6 +241,7 @@ const ProfileScreen = () => {
       await reauthenticateWithCredential(user, credential);
       await updatePassword(user, newPassword);
       Alert.alert("Success", "Your password has been changed successfully.");
+      setShowPasswordForm(false);
       setIsChangingPassword(false);
       setOldPassword('');
       setNewPassword('');
@@ -176,7 +264,6 @@ const ProfileScreen = () => {
 
     setUserEmail(user.email);
 
-    // ✅ FIXED: Use 'database' instead of 'db'
     const userRef = ref(database, `users/${user.uid}`);
     const userListener = onValue(userRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -187,7 +274,6 @@ const ProfileScreen = () => {
       }
     });
 
-    // ✅ FIXED: Use 'database' instead of 'db'
     const studentsRef = ref(database, 'students');
     const studentsListener = onValue(studentsRef, (snapshot) => {
       let foundGuardian: Guardian | null = null;
@@ -245,8 +331,8 @@ const ProfileScreen = () => {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="light-content" />
-        <LinearGradient colors={['#007bff', '#0056b3']} style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#ffffff" />
+        <LinearGradient colors={COLORS.primaryGradient} style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.white} />
           <Text style={styles.loadingText}>Loading profile...</Text>
         </LinearGradient>
       </SafeAreaView>
@@ -259,39 +345,45 @@ const ProfileScreen = () => {
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {userInfo || guardianData ? (
           <View style={styles.content}>
-            <LinearGradient colors={['#ffffff', '#f8fafc']} style={styles.profileCard}>
-              <View style={styles.avatarSection}>
+            {/* Header Section */}
+            <LinearGradient colors={COLORS.primaryGradient} style={styles.header}>
+              <View style={styles.headerContent}>
                 <TouchableOpacity onPress={handleChangePhoto} style={styles.avatarTouchable} disabled={uploadingPhoto}>
                   {userInfo?.photoBase64 ? (
                     <Image source={{ uri: userInfo.photoBase64 }} style={styles.profileAvatar} />
                   ) : (
-                    <LinearGradient colors={['#ff6b6b', '#ff8e8e']} style={styles.profileAvatarPlaceholder}>
-                      <Ionicons name="person" size={50} color="#fff" />
-                    </LinearGradient>
+                    <View style={styles.profileAvatarPlaceholder}>
+                      <Ionicons name="person" size={32} color={COLORS.white} />
+                    </View>
                   )}
                   <View style={styles.cameraIconContainer}>
                     {uploadingPhoto ? (
-                      <ActivityIndicator size="small" color="#fff" />
+                      <ActivityIndicator size="small" color={COLORS.white} />
                     ) : (
-                      <Ionicons name="camera" size={20} color="#fff" />
+                      <Ionicons name="camera" size={16} color={COLORS.white} />
                     )}
                   </View>
                 </TouchableOpacity>
-                <Text style={styles.profileName}>{getDisplayName()}</Text>
-                <View style={styles.roleBadge}>
-                  <Text style={styles.roleLabel}>Parent/Guardian</Text>
-                </View>
-                {guardianData && (
-                  <View style={styles.guardianBadge}>
-                    <Ionicons name="checkmark-circle" size={16} color="#10b981" />
-                    <Text style={styles.guardianBadgeText}>Linked to Student</Text>
+                <View style={styles.headerText}>
+                  <Text style={styles.profileName}>{getDisplayName()}</Text>
+                  <View style={styles.roleBadge}>
+                    <Ionicons name="shield-checkmark" size={12} color={COLORS.white} />
+                    <Text style={styles.roleLabel}>Parent/Guardian</Text>
                   </View>
-                )}
+                </View>
               </View>
+            </LinearGradient>
 
-              <View style={styles.detailsSection}>
+            {/* Main Content */}
+            <View style={styles.mainContent}>
+              {/* Info Card */}
+              <View style={styles.infoCard}>
+                <Text style={styles.sectionTitle}>Personal Information</Text>
+                
                 <View style={styles.detailItem}>
-                  <Ionicons name="mail-outline" size={20} color="#6b7280" style={styles.detailIcon} />
+                  <View style={styles.detailIconContainer}>
+                    <Ionicons name="mail-outline" size={18} color={COLORS.primary} />
+                  </View>
                   <View style={styles.detailTextContainer}>
                     <Text style={styles.detailLabel}>Email Address</Text>
                     <Text style={styles.detailValue}>{getDisplayEmail()}</Text>
@@ -299,7 +391,9 @@ const ProfileScreen = () => {
                 </View>
 
                 <View style={styles.detailItem}>
-                  <Ionicons name="call-outline" size={20} color="#6b7280" style={styles.detailIcon} />
+                  <View style={styles.detailIconContainer}>
+                    <Ionicons name="call-outline" size={18} color={COLORS.primary} />
+                  </View>
                   <View style={styles.detailTextContainer}>
                     <Text style={styles.detailLabel}>Contact Number</Text>
                     <Text style={styles.detailValue}>{getDisplayContact()}</Text>
@@ -307,7 +401,9 @@ const ProfileScreen = () => {
                 </View>
 
                 <View style={styles.detailItem}>
-                  <Ionicons name="location-outline" size={20} color="#6b7280" style={styles.detailIcon} />
+                  <View style={styles.detailIconContainer}>
+                    <Ionicons name="location-outline" size={18} color={COLORS.primary} />
+                  </View>
                   <View style={styles.detailTextContainer}>
                     <Text style={styles.detailLabel}>Address</Text>
                     <Text style={styles.detailValue}>{getDisplayAddress()}</Text>
@@ -316,81 +412,144 @@ const ProfileScreen = () => {
 
                 {guardianData?.rfid && (
                   <View style={styles.detailItem}>
-                    <Ionicons name="id-card-outline" size={20} color="#6b7280" style={styles.detailIcon} />
+                    <View style={styles.detailIconContainer}>
+                      <Ionicons name="id-card-outline" size={18} color={COLORS.primary} />
+                    </View>
                     <View style={styles.detailTextContainer}>
                       <Text style={styles.detailLabel}>Guardian RFID</Text>
                       <Text style={styles.detailValue}>{guardianData.rfid}</Text>
                     </View>
                   </View>
                 )}
-                {auth.currentUser?.uid && (
-                  <View style={styles.detailItem}>
-                    <Ionicons name="key-outline" size={20} color="#6b7280" style={styles.detailIcon} />
-                    <View style={styles.detailTextContainer}>
-                      <Text style={styles.detailLabel}>User ID</Text>
-                      <Text style={[styles.detailValue, styles.userIdText]} numberOfLines={1} ellipsizeMode="middle">
-                        {auth.currentUser.uid}
-                      </Text>
+              </View>
+
+              {/* Guardian Status Card */}
+              {guardianData && (
+                <View style={styles.guardianCard}>
+                  <View style={styles.guardianHeader}>
+                    <Ionicons name="checkmark-circle" size={20} color={COLORS.success} />
+                    <Text style={styles.guardianTitle}>Verified Guardian</Text>
+                  </View>
+                  <Text style={styles.guardianText}>
+                    You are registered as a guardian and linked to student records in the system.
+                  </Text>
+                  {guardianData.relationship && (
+                    <View style={styles.relationshipBadge}>
+                      <Text style={styles.relationshipText}>{guardianData.relationship}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* Security Section */}
+              <View style={styles.securityCard}>
+                <Text style={styles.sectionTitle}>Security</Text>
+                
+                {!showPasswordForm ? (
+                  <TouchableOpacity 
+                    style={styles.securityButton}
+                    onPress={() => setShowPasswordForm(true)}
+                  >
+                    <View style={styles.securityButtonContent}>
+                      <View style={styles.securityIconContainer}>
+                        <Ionicons name="lock-closed" size={20} color={COLORS.primary} />
+                      </View>
+                      <View style={styles.securityTextContainer}>
+                        <Text style={styles.securityTitle}>Change Password</Text>
+                        <Text style={styles.securitySubtitle}>Update your account password</Text>
+                      </View>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={COLORS.gray400} />
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.passwordForm}>
+                    <Text style={styles.formTitle}>Change Password</Text>
+                    
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Current Password"
+                      placeholderTextColor={COLORS.gray400}
+                      secureTextEntry
+                      value={oldPassword}
+                      onChangeText={setOldPassword}
+                    />
+                    
+                    <TextInput
+                      style={styles.input}
+                      placeholder="New Password"
+                      placeholderTextColor={COLORS.gray400}
+                      secureTextEntry
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                    />
+                    
+                    <View style={styles.formButtons}>
+                      <TouchableOpacity 
+                        style={styles.cancelFormButton}
+                        onPress={() => {
+                          setShowPasswordForm(false);
+                          setOldPassword('');
+                          setNewPassword('');
+                        }}
+                      >
+                        <Text style={styles.cancelFormButtonText}>Cancel</Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity 
+                        style={[
+                          styles.saveFormButton,
+                          (!oldPassword || !newPassword) && styles.saveFormButtonDisabled
+                        ]}
+                        onPress={handleChangePassword}
+                        disabled={!oldPassword || !newPassword}
+                      >
+                        <Text style={styles.saveFormButtonText}>Update Password</Text>
+                      </TouchableOpacity>
                     </View>
                   </View>
                 )}
               </View>
 
-              <View style={styles.buttonsContainer}>
-                {isChangingPassword ? (
-                  <>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Old Password"
-                      secureTextEntry
-                      value={oldPassword}
-                      onChangeText={setOldPassword}
-                    />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="New Password"
-                      secureTextEntry
-                      value={newPassword}
-                      onChangeText={setNewPassword}
-                    />
-                    <TouchableOpacity style={styles.saveButton} onPress={handleChangePassword}>
-                      <Text style={styles.saveButtonText}>Save New Password</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.cancelButton} onPress={() => setIsChangingPassword(false)}>
-                      <Text style={styles.cancelButtonText}>Cancel</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <TouchableOpacity style={styles.secondaryButton} onPress={() => setIsChangingPassword(true)}>
-                    <Ionicons name="shield-checkmark-outline" size={20} color="#007bff" />
-                    <Text style={styles.secondaryButtonText}>Change Password</Text>
-                  </TouchableOpacity>
-                )}
-
-                <TouchableOpacity style={styles.logoutButtonFinal} onPress={handleLogout}>
-                  <Ionicons name="log-out-outline" size={20} color="#dc3545" />
-                  <Text style={styles.logoutButtonText}>Logout</Text>
+              {/* Account Actions */}
+              <View style={styles.actionsCard}>
+                <Text style={styles.sectionTitle}>Account</Text>
+                
+                <TouchableOpacity style={styles.actionButton} onPress={handleLogout}>
+                  <View style={styles.actionButtonContent}>
+                    <View style={[styles.actionIconContainer, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
+                      <Ionicons name="log-out-outline" size={20} color={COLORS.error} />
+                    </View>
+                    <View style={styles.actionTextContainer}>
+                      <Text style={styles.actionTitle}>Logout</Text>
+                      <Text style={styles.actionSubtitle}>Sign out of your account</Text>
+                    </View>
+                  </View>
                 </TouchableOpacity>
               </View>
-            </LinearGradient>
 
-            {guardianData && (
-              <LinearGradient colors={['#f0fdf4', '#dcfce7']} style={styles.guardianCard}>
-                <View style={styles.guardianHeader}>
-                  <Ionicons name="people-circle-outline" size={24} color="#16a34a" />
-                  <Text style={styles.guardianTitle}>Guardian Information</Text>
+              {/* User ID Info */}
+              {auth.currentUser?.uid && (
+                <View style={styles.userIdCard}>
+                  <View style={styles.userIdHeader}>
+                    <Ionicons name="information-circle" size={16} color={COLORS.gray500} />
+                    <Text style={styles.userIdLabel}>User ID</Text>
+                  </View>
+                  <Text style={styles.userIdValue} numberOfLines={1} ellipsizeMode="middle">
+                    {auth.currentUser.uid}
+                  </Text>
                 </View>
-                <Text style={styles.guardianText}>
-                  You are registered as a guardian in the system. Your information is linked to student records.
-                </Text>
-              </LinearGradient>
-            )}
+              )}
+            </View>
           </View>
         ) : (
           <View style={styles.placeholderContainer}>
-            <Ionicons name="person-circle-outline" size={80} color="#d1d5db" />
-            <Text style={styles.placeholderText}>No user data found.</Text>
-            <Text style={styles.placeholderSubtext}>Please make sure you are logged in.</Text>
+            <View style={styles.placeholderIcon}>
+              <Ionicons name="person-circle-outline" size={64} color={COLORS.gray400} />
+            </View>
+            <Text style={styles.placeholderTitle}>No User Data</Text>
+            <Text style={styles.placeholderSubtitle}>
+              Please make sure you are properly logged in and your account is linked to a student.
+            </Text>
             <TouchableOpacity style={styles.loginButton} onPress={() => router.replace('/')}>
               <Text style={styles.loginButtonText}>Go to Login</Text>
             </TouchableOpacity>
@@ -402,340 +561,398 @@ const ProfileScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1999e8' },
-  scrollView: { flex: 1 },
+  container: { 
+    flex: 1, 
+    backgroundColor: COLORS.primary 
+  },
+  scrollView: { 
+    flex: 1 
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#ffffff',
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    marginTop: SPACING.md,
+    ...TYPOGRAPHY.base,
+    color: COLORS.white,
+    fontWeight: '600',
   },
   content: {
-    padding: 20,
-    paddingTop: 60,
+    flex: 1,
   },
-  profileCard: {
-    borderRadius: 24,
-    padding: 32,
-    marginBottom: 20,
-    shadowColor: '#1999e8',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    elevation: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+  
+  // Header Section
+  header: {
+    paddingTop: SPACING.xl,
+    paddingBottom: SPACING.xxl,
+    paddingHorizontal: SPACING.lg,
   },
-  avatarSection: {
+  headerContent: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 28,
   },
   avatarTouchable: {
     position: 'relative',
-    shadowColor: '#1999e8',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+    marginRight: SPACING.lg,
   },
   profileAvatar: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    borderWidth: 5,
-    borderColor: '#1999e8',
+    width: 70,
+    height: 70,
+    borderRadius: BORDER_RADIUS['2xl'],
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   profileAvatarPlaceholder: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
+    width: 70,
+    height: 70,
+    borderRadius: BORDER_RADIUS['2xl'],
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 5,
-    borderColor: '#1999e8',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   cameraIconContainer: {
     position: 'absolute',
-    bottom: 4,
-    right: 4,
-    backgroundColor: '#10b981',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    bottom: -4,
+    right: -4,
+    backgroundColor: COLORS.success,
+    width: 28,
+    height: 28,
+    borderRadius: BORDER_RADIUS.full,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 4,
-    borderColor: '#fff',
-    shadowColor: '#10b981',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
+    borderWidth: 2,
+    borderColor: COLORS.white,
+  },
+  headerText: {
+    flex: 1,
   },
   profileName: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#1f2937',
-    marginTop: 16,
-    marginBottom: 12,
-    textAlign: 'center',
-    letterSpacing: 0.5,
+    ...TYPOGRAPHY['2xl'],
+    fontWeight: '700',
+    color: COLORS.white,
+    marginBottom: SPACING.xs,
   },
   roleBadge: {
-    backgroundColor: 'rgba(25, 153, 232, 0.12)',
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 24,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(25, 153, 232, 0.3)',
-    shadowColor: '#1999e8',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  roleLabel: {
-    fontSize: 14,
-    color: '#1999e8',
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  guardianBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 24,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
-    shadowColor: '#10b981',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
+    borderRadius: BORDER_RADIUS.full,
+    alignSelf: 'flex-start',
+    gap: SPACING.xs,
   },
-  guardianBadgeText: {
-    fontSize: 13,
-    color: '#10b981',
+  roleLabel: {
+    ...TYPOGRAPHY.xs,
+    color: COLORS.white,
+    fontWeight: '600',
+  },
+  
+  // Main Content
+  mainContent: {
+    padding: SPACING.lg,
+    marginTop: -SPACING.xl,
+  },
+  
+  // Cards
+  infoCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
+    ...SHADOWS.md,
+  },
+  guardianCard: {
+    backgroundColor: COLORS.successLight,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.success,
+  },
+  securityCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
+    ...SHADOWS.md,
+  },
+  actionsCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
+    ...SHADOWS.md,
+  },
+  userIdCard: {
+    backgroundColor: COLORS.gray50,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.gray200,
+  },
+  
+  // Section Titles
+  sectionTitle: {
+    ...TYPOGRAPHY.lg,
     fontWeight: '700',
-    letterSpacing: 0.3,
+    color: COLORS.gray800,
+    marginBottom: SPACING.lg,
   },
-  detailsSection: {
-    width: '100%',
-    backgroundColor: 'rgba(249, 250, 251, 0.6)',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(229, 231, 235, 0.5)',
-  },
+  
+  // Detail Items
   detailItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(229, 231, 235, 0.3)',
+    borderBottomColor: COLORS.gray100,
   },
-  detailIcon: {
-    marginRight: 16,
-    width: 24,
-    opacity: 0.7,
+  detailIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: 'rgba(25, 153, 232, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
   },
   detailTextContainer: {
     flex: 1,
   },
   detailLabel: {
-    fontSize: 11,
-    color: '#6b7280',
+    ...TYPOGRAPHY.xs,
+    color: COLORS.gray500,
+    fontWeight: '600',
     textTransform: 'uppercase',
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   detailValue: {
-    fontSize: 16,
-    color: '#1f2937',
-    marginTop: 2,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  userIdText: {
-    fontSize: 11,
-    fontFamily: 'monospace',
-    color: '#6b7280',
-  },
-  buttonsContainer: {
-    width: '100%',
-    gap: 14,
-  },
-  secondaryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#1999e8',
-    shadowColor: '#1999e8',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  secondaryButtonText: {
-    color: '#1999e8',
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  input: {
-    width: '100%',
-    padding: 16,
-    borderWidth: 2,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    marginBottom: 12,
-    backgroundColor: '#fff',
-    fontSize: 16,
+    ...TYPOGRAPHY.base,
+    color: COLORS.gray800,
     fontWeight: '500',
   },
-  saveButton: {
-    backgroundColor: '#10b981',
-    padding: 16,
-    borderRadius: 16,
-    alignItems: 'center',
-    shadowColor: '#10b981',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  cancelButton: {
-    padding: 16,
-    borderRadius: 16,
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#d1d5db',
-  },
-  cancelButtonText: {
-    color: '#6b7280',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  logoutButtonFinal: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    backgroundColor: 'rgba(239, 68, 68, 0.08)',
-    borderWidth: 2,
-    borderColor: '#ef4444',
-    marginTop: 12,
-    shadowColor: '#ef4444',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  logoutButtonText: {
-    color: '#ef4444',
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  guardianCard: {
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(22, 163, 74, 0.2)',
-    shadowColor: '#10b981',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
+  
+  // Guardian Card
   guardianHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 12,
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
   guardianTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#15803d',
-    letterSpacing: 0.3,
+    ...TYPOGRAPHY.base,
+    fontWeight: '700',
+    color: COLORS.successDark,
   },
   guardianText: {
-    fontSize: 15,
-    color: '#166534',
-    lineHeight: 22,
-    fontWeight: '500',
+    ...TYPOGRAPHY.sm,
+    color: COLORS.successDark,
+    lineHeight: 18,
+    marginBottom: SPACING.sm,
   },
+  relationshipBadge: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.sm,
+    alignSelf: 'flex-start',
+  },
+  relationshipText: {
+    ...TYPOGRAPHY.xs,
+    color: COLORS.successDark,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  
+  // Security Section
+  securityButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: SPACING.md,
+    backgroundColor: COLORS.gray50,
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.gray200,
+  },
+  securityButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  securityIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: 'rgba(25, 153, 232, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  securityTextContainer: {
+    flex: 1,
+  },
+  securityTitle: {
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
+    color: COLORS.gray800,
+    marginBottom: 2,
+  },
+  securitySubtitle: {
+    ...TYPOGRAPHY.xs,
+    color: COLORS.gray500,
+  },
+  
+  // Password Form
+  passwordForm: {
+    backgroundColor: COLORS.gray50,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg,
+    borderWidth: 1,
+    borderColor: COLORS.gray200,
+  },
+  formTitle: {
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
+    color: COLORS.gray800,
+    marginBottom: SPACING.lg,
+  },
+  input: {
+    backgroundColor: COLORS.white,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.gray300,
+    ...TYPOGRAPHY.base,
+    color: COLORS.gray800,
+  },
+  formButtons: {
+    flexDirection: 'row',
+    gap: SPACING.md,
+    marginTop: SPACING.sm,
+  },
+  cancelFormButton: {
+    flex: 1,
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.gray200,
+    alignItems: 'center',
+  },
+  cancelFormButtonText: {
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
+    color: COLORS.gray700,
+  },
+  saveFormButton: {
+    flex: 1,
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+  },
+  saveFormButtonDisabled: {
+    backgroundColor: COLORS.gray300,
+  },
+  saveFormButtonText: {
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
+    color: COLORS.white,
+  },
+  
+  // Action Button
+  actionButton: {
+    padding: SPACING.md,
+    backgroundColor: COLORS.gray50,
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.gray200,
+  },
+  actionButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: BORDER_RADIUS.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  actionTextContainer: {
+    flex: 1,
+  },
+  actionTitle: {
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
+    color: COLORS.gray800,
+    marginBottom: 2,
+  },
+  actionSubtitle: {
+    ...TYPOGRAPHY.xs,
+    color: COLORS.gray500,
+  },
+  
+  // User ID Card
+  userIdHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    marginBottom: SPACING.xs,
+  },
+  userIdLabel: {
+    ...TYPOGRAPHY.xs,
+    color: COLORS.gray500,
+    fontWeight: '600',
+  },
+  userIdValue: {
+    ...TYPOGRAPHY.xs,
+    color: COLORS.gray600,
+    fontFamily: 'monospace',
+  },
+  
+  // Placeholder State
   placeholderContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 80,
-    paddingHorizontal: 20,
+    padding: SPACING.xl,
+    minHeight: 400,
   },
-  placeholderText: {
-    fontSize: 20,
-    color: '#fff',
-    marginTop: 20,
+  placeholderIcon: {
+    marginBottom: SPACING.lg,
+  },
+  placeholderTitle: {
+    ...TYPOGRAPHY.xl,
     fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  placeholderSubtext: {
-    fontSize: 15,
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginTop: 8,
+    color: COLORS.white,
+    marginBottom: SPACING.sm,
     textAlign: 'center',
-    marginHorizontal: 20,
-    fontWeight: '500',
+  },
+  placeholderSubtitle: {
+    ...TYPOGRAPHY.base,
+    color: 'rgba(255,255,255,0.8)',
+    textAlign: 'center',
+    marginBottom: SPACING.xl,
+    lineHeight: 20,
   },
   loginButton: {
-    marginTop: 24,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: COLORS.white,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    ...SHADOWS.sm,
   },
   loginButtonText: {
-    color: '#1999e8',
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
+    color: COLORS.primary,
   },
 });
 

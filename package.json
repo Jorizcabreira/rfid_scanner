@@ -1,4 +1,5 @@
 {
+  "type": "commonjs",
   "name": "rfid_scanner",
   "main": "expo-router/entry",
   "version": "1.0.0",
@@ -20,7 +21,7 @@
     "@sendgrid/mail": "^8.1.6",
     "cors": "^2.8.5",
     "eas-cli": "^16.24.1",
-    "expo": "54.0.21",
+    "expo": "^54.0.21",
     "expo-auth-session": "^7.0.9",
     "expo-constants": "~18.0.10",
     "expo-crypto": "^15.0.7",

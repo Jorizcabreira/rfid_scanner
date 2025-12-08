@@ -75,7 +75,6 @@ export class PushNotificationService {
       }
 
       await this.saveNotifications();
-      console.log('Notification added to local storage:', notification.id);
     } catch (error) {
       console.error('Error adding notification:', error);
     }

@@ -9,64 +9,72 @@ function getTodayDateString() {
   return `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
 }
 
-async function sendPickupReminder(studentId, parentId) {
-  // TODO: Replace with your push notification logic (Expo/Firebase)
-  console.log(`Sending pickup reminder to parent ${parentId} for student ${studentId}`);
-  // Example: Call your notification service here
+const { sendPushNotification } = require('./sendNotifications');
+
+async function sendPickupReminder(studentId, parentId, studentFullName) {
+  // Use sendPushNotification to send pickup reminder
+  await sendPushNotification(
+    '🔔 Pickup Reminder',
+    `Don\'t forget to scan your RFID when picking up ${studentFullName}`,
+    {
+      type: 'pickup_reminder',
+      studentId,
+      studentName: studentFullName,
+      action: 'pickup_reminder',
+      timestamp: Date.now()
+    },
+    true // URGENT
+  );
 }
 
-async function shouldSendPickupReminder(studentId, parentId) {
+async function shouldSendPickupReminder(studentId, parentId, studentFullName) {
   const now = new Date();
   const hour = now.getHours();
   const minute = now.getMinutes();
 
-  // Only send between 12:30 PM and 9:00 PM
-  if (hour < 12 || (hour === 12 && minute < 30) || hour >= 21) return false;
+  // Only send at exactly 12:30 PM
+  if (!(hour === 12 && minute === 30)) return false;
 
   // Check if parent has already scanned for pickup today
   const scanRef = db.ref(`pickups/${studentId}/${getTodayDateString()}`);
   const scanSnapshot = await scanRef.once('value');
   if (scanSnapshot.exists()) return false;
 
-  // Get last reminder timestamp
-  const reminderRef = db.ref(`pickupReminders/${studentId}/${parentId}`);
-  const reminderSnapshot = await reminderRef.once('value');
-  const lastReminder = reminderSnapshot.val();
-
-  if (lastReminder) {
-    const last = new Date(lastReminder);
-    if (
-      last.getFullYear() === now.getFullYear() &&
-      last.getMonth() === now.getMonth() &&
-      last.getDate() === now.getDate() &&
-      last.getHours() === now.getHours()
-    ) {
-      // Already sent a reminder this hour
-      return false;
-    }
+  // Deduplication: Only send one reminder per student per day
+  const studentReminderRef = db.ref(`pickupReminders/${studentId}/sentDate`);
+  const studentReminderSnapshot = await studentReminderRef.once('value');
+  const lastSentDate = studentReminderSnapshot.val();
+  const todayDate = getTodayDateString();
+  if (lastSentDate === todayDate) {
+    // Already sent a reminder for this student today
+    return false;
   }
 
   // Send reminder
-  await sendPickupReminder(studentId, parentId);
-  await reminderRef.set(now.toISOString());
+  await sendPickupReminder(studentId, parentId, studentFullName);
+  await studentReminderRef.set(todayDate);
   return true;
 }
 
-async function hourlyPickupReminderJob() {
+async function pickupReminderJob() {
   const studentsSnapshot = await db.ref('students').once('value');
   const students = studentsSnapshot.val();
   for (const studentId in students) {
-    const guardians = students[studentId].guardians || [];
+    const student = students[studentId];
+    const studentFullName = student.fullName || `${student.firstName || ''} ${student.lastName || ''}`.trim();
+    const guardians = student.guardians || [];
+    let sent = false;
     for (const guardian of guardians) {
+      if (sent) break; // Only send once per student
       const parentId = guardian.parentUid || guardian.rfid;
-      await shouldSendPickupReminder(studentId, parentId);
+      sent = await shouldSendPickupReminder(studentId, parentId, studentFullName);
     }
   }
 }
 
 // Run the job
-hourlyPickupReminderJob().then(() => {
-  console.log('Hourly pickup reminder job completed.');
+pickupReminderJob().then(() => {
+  // ...existing code...
   process.exit(0);
 }).catch(err => {
   console.error('Error running pickup reminder job:', err);

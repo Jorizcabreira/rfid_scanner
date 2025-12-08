@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDRRMO Documents</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="website icon" type="png" href="images/pdrrmologo.jpg">
+    
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    
+    <style>
+        /* Reset & Base */
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background: #f8fafc; height: 100vh; overflow: hidden; }
+        
+        /* Main Container */
+        .main-container { display: flex; height: 100vh; }
+        
+        /* Sidebar */
+        .sidebar {
+            background: linear-gradient(180deg, #0f8a30 0%, #0a6b25 100%);
+            width: 250px; height: 100vh; position: fixed;
+            left: 0; top: 0; overflow-y: auto; z-index: 40;
+            box-shadow: 4px 0 15px rgba(0,0,0,0.1);
+        }
+        .logo-container { padding: 20px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .logo-container img { width: 80px; height: 80px; object-fit: contain; border-radius: 8px; }
+        .app-title { color: white; font-size: 14px; margin-top: 10px; font-weight: 500; }
+        
+        /* Navigation */
+        .sidebar-nav { padding: 20px; }
+        .nav-item {
+            display: flex; align-items: center; padding: 12px 15px; color: white;
+            text-decoration: none; border-radius: 8px; margin-bottom: 8px;
+            transition: all 0.3s; font-size: 14px; font-weight: 500;
+        }
+        .nav-item:hover { background: rgba(255,255,255,0.15); }
+        .nav-item.active { background: rgba(255,255,255,0.25); }
+        .nav-icon { margin-right: 12px; font-size: 18px; width: 24px; text-align: center; }
+        
+        /* Main Content */
+        main { flex: 1; margin-left: 250px; height: 100vh; overflow-y: auto; padding: 20px; }
+        
+        /* Header */
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+        .page-title { font-size: 24px; font-weight: 700; color: #1e293b; }
+        
+        /* Profile */
+        .profile-section { display: flex; align-items: center; gap: 15px; }
+        .profile-img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid #0f8a30; }
+        .user-info { display: flex; flex-direction: column; }
+        .user-name { font-weight: 600; color: #1e293b; font-size: 14px; }
+        .user-role { color: #64748b; font-size: 12px; }
+        
+        /* Stats */
+        .stats-container {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px; margin-bottom: 25px;
+        }
+        .stat-card {
+            background: white; border-radius: 10px; padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;
+            display: flex; flex-direction: column; align-items: center; text-align: center;
+        }
+        .stat-icon {
+            width: 40px; height: 40px; border-radius: 10px; display: flex;
+            align-items: center; justify-content: center; margin-bottom: 12px; font-size: 18px;
+        }
+        .stat-value { font-size: 24px; font-weight: 700; margin-bottom: 5px; color: #1e293b; }
+        .stat-label { font-size: 13px; color: #64748b; }
+        
+        /* Search */
+        .filter-section {
+            background: white; border-radius: 10px; padding: 20px;
+            margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;
+        }
+        .search-box { position: relative; width: 100%; max-width: 350px; }
+        .search-box input {
+            width: 100%; padding: 10px 15px 10px 40px; border: 1px solid #cbd5e1;
+            border-radius: 8px; font-size: 14px; transition: all 0.3s;
+        }
+        .search-box input:focus {
+            outline: none; border-color: #0f8a30; box-shadow: 0 0 0 3px rgba(15,138,48,0.1);
+        }
+        .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
+        
+        /* Table */
+        .table-container {
+            background: white; border-radius: 10px; overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; margin-bottom: 20px;
+        }
+        .table-header { padding: 20px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+        .table-title { font-size: 16px; font-weight: 600; color: #1e293b; }
+        .table-body { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f8fafc; padding: 15px; text-align: left; font-weight: 600; color: #475569; font-size: 13px; border-bottom: 2px solid #e2e8f0; }
+        td { padding: 15px; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
+        tbody tr:hover { background: #f8fafc; }
+        
+        /* Badges */
+        .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+        .status-active { background: #dcfce7; color: #166534; }
+        .status-inactive { background: #fee2e2; color: #991b1b; }
+        .status-pending { background: #fef3c7; color: #92400e; }
+        .doc-type-badge { background: #dbeafe; color: #1e40af; }
+        
+        /* Buttons */
+        .action-buttons { display: flex; gap: 8px; }
+        .action-btn {
+            padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 500;
+            cursor: pointer; display: flex; align-items: center; gap: 5px; border: none; transition: all 0.3s;
+        }
+        .view-btn { background: #3b82f6; color: white; }
+        .view-btn:hover { background: #2563eb; }
+        .download-btn { background: #10b981; color: white; }
+        .download-btn:hover { background: #059669; }
+        
+        /* Document Buttons */
+        .doc-buttons-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; }
+        .doc-btn {
+            background: linear-gradient(135deg, #0f8a30 0%, #0a6b25 100%); color: white;
+            border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px;
+            cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.3s;
+        }
+        .doc-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(15,138,48,0.3); }
+        
+        /* Modal */
+        .document-modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); display: flex; align-items: center;
+            justify-content: center; z-index: 1000; opacity: 0; visibility: hidden; transition: all 0.3s;
+        }
+        .document-modal.show { opacity: 1; visibility: visible; }
+        .modal-content {
+            background: white; border-radius: 12px; width: 90%; max-width: 800px;
+            max-height: 90vh; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+        }
+        .modal-header { padding: 20px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+        .modal-title { font-size: 18px; font-weight: 600; color: #1e293b; }
+        .close-modal { background: none; border: none; font-size: 24px; color: #64748b; cursor: pointer; padding: 5px; }
+        .close-modal:hover { color: #1e293b; }
+        .modal-body { padding: 20px; max-height: 70vh; overflow-y: auto; }
+        
+        /* PDF Viewer */
+        .pdf-viewer { width: 100%; height: 600px; border: none; border-radius: 8px; }
+        .pdf-placeholder { text-align: center; padding: 40px; }
+        .pdf-placeholder i { font-size: 48px; color: #ef4444; margin-bottom: 15px; }
+        .pdf-placeholder h3 { color: #1e293b; margin-bottom: 10px; }
+        
+        /* Empty State */
+        .empty-state { text-align: center; padding: 50px 20px; }
+        .empty-icon { font-size: 48px; color: #cbd5e1; margin-bottom: 15px; }
+        .empty-title { font-size: 16px; color: #64748b; margin-bottom: 8px; }
+        .empty-description { font-size: 14px; color: #94a3b8; }
+        
+        /* Loading */
+        .loading-state { text-align: center; padding: 40px; }
+        .loading-spinner { font-size: 32px; color: #0f8a30; margin-bottom: 15px; animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        /* Pagination */
+        .pagination {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 15px 20px; border-top: 1px solid #e2e8f0; background: white;
+            border-radius: 0 0 10px 10px;
+        }
+        .pagination-info { color: #64748b; font-size: 14px; }
+        .pagination-controls { display: flex; align-items: center; gap: 10px; }
+        .pagination-btn {
+            padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;
+            background: white; color: #475569; font-size: 13px; cursor: pointer; transition: all 0.3s;
+        }
+        .pagination-btn:hover:not(:disabled) { background: #f1f5f9; }
+        .pagination-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar { width: 70px; }
+            .sidebar .app-title, .sidebar .nav-item span { display: none; }
+            main { margin-left: 70px; }
+            .nav-icon { margin-right: 0; font-size: 20px; }
+            .stats-container { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 480px) {
+            .stats-container { grid-template-columns: 1fr; }
+            .page-header { flex-direction: column; gap: 15px; align-items: flex-start; }
+            .action-buttons { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-container">
+                <img src="images/pdrrmologo.jpg" alt="PDRRMO Logo">
+                <div class="app-title">PDRRMO SYSTEM</div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="dashboard.html" class="nav-item">
+                    <i class="fas fa-grip nav-icon"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="schedule.html" class="nav-item">
+                    <i class="fas fa-calendar-days nav-icon"></i>
+                    <span>Schedule</span>
+                </a>
+                <a href="records.html" class="nav-item">
+                    <i class="fas fa-users nav-icon"></i>
+                    <span>Volunteers</span>
+                </a>
+                <a href="documents.html" class="nav-item active">
+                    <i class="fas fa-folder-open nav-icon"></i>
+                    <span>Documents</span>
+                </a>
+                <a href="settings.html" class="nav-item">
+                    <i class="fas fa-cog nav-icon"></i>
+                    <span>Settings</span>
+                </a>
+                <a href="#" id="logoutBtn" class="nav-item">
+                    <i class="fas fa-sign-out-alt nav-icon"></i>
+                    <span>Logout</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main>
+            <!-- Page Header -->
+            <div class="page-header">
+                <h1 class="page-title">Volunteer Documents</h1>
+                <div class="profile-section">
+                    <img id="userProfileImg" src="images/default_user.jpg" alt="Profile" class="profile-img">
+                    <div class="user-info">
+                        <span id="userName" class="user-name">Admin User</span>
+                        <span class="user-role">Administrator</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="stats-container">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: #dcfce7; color: #166534;">
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <div class="stat-value" id="totalVolunteers">0</div>
+                    <div class="stat-label">Total Volunteers</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: #dbeafe; color: #1e40af;">
+                        <i class="fas fa-file-alt"></i>
+                    </div>
+                    <div class="stat-value" id="totalDocuments">0</div>
+                    <div class="stat-label">Total Documents</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: #fef3c7; color: #92400e;">
+                        <i class="fas fa-user-check"></i>
+                    </div>
+                    <div class="stat-value" id="activeVolunteers">0</div>
+                    <div class="stat-label">Active Volunteers</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: #fce7f3; color: #be185d;">
+                        <i class="fas fa-certificate"></i>
+                    </div>
+                    <div class="stat-value" id="certifiedVolunteers">0</div>
+                    <div class="stat-label">Certified</div>
+                </div>
+            </div>
+
+            <!-- Search and Filter -->
+            <div class="filter-section">
+                <div class="search-box">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" id="searchInput" placeholder="Search volunteers or documents...">
+                </div>
+            </div>
+
+            <!-- Documents Table -->
+            <div class="table-container">
+                <div class="table-header">
+                    <h2 class="table-title">Document Management</h2>
+                </div>
+                
+                <div class="table-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Volunteer Name</th>
+                                <th>Email</th>
+                                <th>Status</th>
+                                <th>Documents</th>
+                                <th>Upload Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="documentsTableBody">
+                            <tr>
+                                <td colspan="6" class="loading-state">
+                                    <i class="fas fa-spinner loading-spinner"></i>
+                                    <div>Loading documents...</div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Pagination -->
+                <div class="pagination">
+                    <div id="paginationInfo" class="pagination-info">Showing 0 of 0 items</div>
+                    <div class="pagination-controls">
+                        <button id="prevBtn" class="pagination-btn" disabled>
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </button>
+                        <button id="nextBtn" class="pagination-btn" disabled>
+                            Next <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Document Viewer Modal -->
+    <div id="documentModal" class="document-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="documentTitle" class="modal-title">Document Viewer</h3>
+                <button class="close-modal" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body" id="documentBody"></div>
+        </div>
+    </div>
+
+    <script>
+        // Firebase Config
+        const firebaseConfig = {
+            apiKey: "AIzaSyDHqEP61VtD7YMny6Ll0KpuMJGQtJf6DwU",
+            authDomain: "pdrrmo-cd23c.firebaseapp.com",
+            databaseURL: "https://pdrrmo-cd23c-default-rtdb.firebaseio.com",
+            projectId: "pdrrmo-cd23c",
+            storageBucket: "pdrrmo-cd23c.appspot.com",
+            messagingSenderId: "480632769002",
+            appId: "1:480632769002:web:8e4254688efeac893a0a93",
+            measurementId: "G-J90SQKN5KE"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.database();
+        const auth = firebase.auth();
+
+        // Global Variables
+        let allVolunteers = [];
+        let filteredVolunteers = [];
+        let currentPage = 1;
+        const itemsPerPage = 10;
+
+        // DOM Elements
+        const documentsTableBody = document.getElementById('documentsTableBody');
+        const searchInput = document.getElementById('searchInput');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const paginationInfo = document.getElementById('paginationInfo');
+        const userProfileImg = document.getElementById('userProfileImg');
+        const userName = document.getElementById('userName');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const documentModal = document.getElementById('documentModal');
+        const closeModal = document.getElementById('closeModal');
+        const documentTitle = document.getElementById('documentTitle');
+        const documentBody = document.getElementById('documentBody');
+        const totalVolunteersEl = document.getElementById('totalVolunteers');
+        const totalDocumentsEl = document.getElementById('totalDocuments');
+        const activeVolunteersEl = document.getElementById('activeVolunteers');
+        const certifiedVolunteersEl = document.getElementById('certifiedVolunteers');
+
+        // Authentication Check
+        function checkAuth() {
+            const hasSession = localStorage.getItem('adminSession');
+            const hasToken = localStorage.getItem('token');
+            
+            if (!hasSession && !hasToken) {
+                window.location.href = 'login.html';
+                return false;
+            }
+            
+            if (hasSession) {
+                try {
+                    const session = JSON.parse(hasSession);
+                    const currentTime = new Date().getTime();
+                    
+                    if (currentTime - session.timestamp > 86400000) {
+                        localStorage.removeItem('adminSession');
+                        localStorage.removeItem('adminData');
+                        localStorage.removeItem('token');
+                        window.location.href = 'login.html';
+                        return false;
+                    }
+                } catch (e) {
+                    localStorage.removeItem('adminSession');
+                    localStorage.removeItem('adminData');
+                    localStorage.removeItem('token');
+                    window.location.href = 'login.html';
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // Load User Profile
+        function loadUserProfile() {
+            try {
+                const storedAdminData = localStorage.getItem('adminData');
+                const storedSession = localStorage.getItem('adminSession');
+                
+                if (storedAdminData) {
+                    const adminData = JSON.parse(storedAdminData);
+                    if (userName) userName.textContent = adminData.name || 'Admin';
+                    if (userProfileImg && adminData.profilePic) {
+                        userProfileImg.src = adminData.profilePic;
+                    }
+                } else if (storedSession) {
+                    const session = JSON.parse(storedSession);
+                    if (userName && session.username) {
+                        userName.textContent = session.username;
+                    }
+                }
+                
+                if (!userName.textContent) userName.textContent = 'Admin';
+            } catch (error) {
+                console.error('Profile load error:', error);
+                userName.textContent = 'Admin';
+            }
+        }
+
+        // Load Volunteers
+        async function loadAllVolunteers() {
+            try {
+                documentsTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="loading-state">
+                            <i class="fas fa-spinner loading-spinner"></i>
+                            <div>Loading volunteers...</div>
+                        </td>
+                    </tr>
+                `;
+
+                const volunteersRef = db.ref('volunteers');
+                const snapshot = await volunteersRef.once('value');
+                const volunteersData = snapshot.val();
+
+                allVolunteers = [];
+                let totalDocumentsCount = 0;
+                let activeCount = 0;
+                let certifiedCount = 0;
+
+                if (!volunteersData) {
+                    showEmptyState();
+                    updateStats(0, 0, 0, 0);
+                    return;
+                }
+
+                Object.entries(volunteersData).forEach(([uid, volunteer]) => {
+                    if (volunteer) {
+                        const documents = [];
+                        let docCount = 0;
+
+                        // Check for profile picture
+                        const profilePic = volunteer.profile_picture_base64 || volunteer.profilePictureUrl;
+                        if (profilePic) {
+                            documents.push({
+                                type: 'Profile Picture',
+                                name: 'Profile Photo',
+                                data: profilePic,
+                                isBase64: !!volunteer.profile_picture_base64,
+                                icon: 'fa-user-circle'
+                            });
+                            docCount++;
+                        }
+
+                        // Check for birth certificate
+                        const birthCert = volunteer.birth_certificate_base64 || volunteer.birthCertificateUrl;
+                        if (birthCert) {
+                            documents.push({
+                                type: 'Birth Certificate',
+                                name: 'Birth Certificate',
+                                data: birthCert,
+                                isBase64: !!volunteer.birth_certificate_base64,
+                                icon: 'fa-file-certificate'
+                            });
+                            docCount++;
+                        }
+
+                        // Check for certifications
+                        const certs = volunteer.certifications_base64 || volunteer.certificationsUrl;
+                        if (certs) {
+                            documents.push({
+                                type: 'Certifications',
+                                name: 'Training Certificates',
+                                data: certs,
+                                isBase64: !!volunteer.certifications_base64,
+                                icon: 'fa-certificate'
+                            });
+                            docCount++;
+                            certifiedCount++;
+                        }
+
+                        totalDocumentsCount += docCount;
+                        if (volunteer.status === 'active') activeCount++;
+
+                        allVolunteers.push({
+                            id: uid,
+                            name: (volunteer.firstname || '') + ' ' + (volunteer.lastname || ''),
+                            email: volunteer.email || 'No email',
+                            status: volunteer.status || 'active',
+                            registeredAt: volunteer.registered_at || new Date().toISOString(),
+                            documents: documents,
+                            docCount: docCount,
+                            hasCertifications: !!certs
+                        });
+                    }
+                });
+
+                updateStats(allVolunteers.length, totalDocumentsCount, activeCount, certifiedCount);
+                filteredVolunteers = [...allVolunteers];
+                currentPage = 1;
+                renderVolunteersTable();
+                
+            } catch (error) {
+                console.error('Load error:', error);
+                documentsTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="6" style="text-align:center;padding:40px;color:#dc3545;">
+                            <i class="fas fa-exclamation-circle"></i><br>
+                            Error loading documents<br>
+                            <small>${error.message || 'Unknown error'}</small>
+                        </td>
+                    </tr>
+                `;
+                updateStats(0, 0, 0, 0);
+            }
+        }
+
+        // Update Stats
+        function updateStats(totalVol, totalDocs, activeVol, certifiedVol) {
+            totalVolunteersEl.textContent = totalVol;
+            totalDocumentsEl.textContent = totalDocs;
+            activeVolunteersEl.textContent = activeVol;
+            certifiedVolunteersEl.textContent = certifiedVol;
+        }
+
+        // Render Volunteers Table
+        function renderVolunteersTable() {
+            if (!documentsTableBody) return;
+
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const pageVolunteers = filteredVolunteers.slice(startIndex, endIndex);
+
+            if (pageVolunteers.length === 0) {
+                showEmptyState();
+                return;
+            }
+
+            let tableHTML = '';
+
+            pageVolunteers.forEach(volunteer => {
+                let statusBadge = '';
+                switch(volunteer.status) {
+                    case 'active': statusBadge = '<span class="badge status-active">Active</span>'; break;
+                    case 'inactive': statusBadge = '<span class="badge status-inactive">Inactive</span>'; break;
+                    case 'pending': statusBadge = '<span class="badge status-pending">Pending</span>'; break;
+                    default: statusBadge = '<span class="badge status-active">Active</span>';
+                }
+
+                let docButtons = '';
+                if (volunteer.documents.length > 0) {
+                    docButtons = '<div class="doc-buttons-container">';
+                    volunteer.documents.forEach((doc, index) => {
+                        const docData = {
+                            volunteerName: volunteer.name,
+                            volunteerEmail: volunteer.email,
+                            documentType: doc.type,
+                            documentName: doc.name,
+                            documentData: doc.data,
+                            isBase64: doc.isBase64,
+                            uploadedAt: volunteer.registeredAt,
+                            icon: doc.icon
+                        };
+                        
+                        const escapedData = escapeJs(JSON.stringify(docData));
+                        docButtons += `
+                            <button class="doc-btn" onclick="viewDoc('${escapedData}')">
+                                <i class="fas ${doc.icon}"></i> ${doc.type}
+                            </button>
+                        `;
+                    });
+                    docButtons += '</div>';
+                } else {
+                    docButtons = '<span style="color:#94a3b8;font-style:italic;">No documents</span>';
+                }
+
+                const volData = escapeJs(JSON.stringify(volunteer));
+
+                tableHTML += `
+                    <tr>
+                        <td><strong>${escapeHtml(volunteer.name)}</strong></td>
+                        <td>${escapeHtml(volunteer.email)}</td>
+                        <td>${statusBadge}</td>
+                        <td>${docButtons}</td>
+                        <td>${formatDate(volunteer.registeredAt)}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="action-btn view-btn" onclick="viewAllDocs('${volData}')">
+                                    <i class="fas fa-folder-open"></i> View All
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            documentsTableBody.innerHTML = tableHTML;
+            updatePagination();
+        }
+
+        // Empty State
+        function showEmptyState() {
+            documentsTableBody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="empty-state">
+                        <div class="empty-icon"><i class="fas fa-folder-open"></i></div>
+                        <h3 class="empty-title">No volunteers found</h3>
+                        <p class="empty-description">Try adjusting your search</p>
+                    </td>
+                </tr>
+            `;
+            updatePagination();
+        }
+
+        // Pagination
+        function updatePagination() {
+            const totalPages = Math.ceil(filteredVolunteers.length / itemsPerPage) || 1;
+            const startItem = ((currentPage - 1) * itemsPerPage) + 1;
+            const endItem = Math.min(currentPage * itemsPerPage, filteredVolunteers.length);
+            
+            paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${filteredVolunteers.length}`;
+            prevBtn.disabled = currentPage === 1;
+            nextBtn.disabled = currentPage === totalPages || filteredVolunteers.length === 0;
+        }
+
+        // View Document
+        function viewDoc(docJson) {
+            try {
+                const doc = JSON.parse(docJson);
+                
+                if (!doc.documentData) {
+                    alert('No document data');
+                    return;
+                }
+                
+                documentTitle.textContent = doc.documentType + ' - ' + doc.volunteerName;
+                
+                let viewerHTML = '';
+                
+                if (doc.isBase64) {
+                    if (doc.documentData.startsWith('data:image/')) {
+                        viewerHTML = `
+                            <div style="text-align:center;">
+                                <img src="${escapeHtml(doc.documentData)}" 
+                                     style="max-width:100%;max-height:65vh;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+                                <div style="margin-top:15px;text-align:left;color:#64748b;">
+                                    <p><strong>Volunteer:</strong> ${escapeHtml(doc.volunteerName)}</p>
+                                    <p><strong>Email:</strong> ${escapeHtml(doc.volunteerEmail)}</p>
+                                    <p><strong>Document Type:</strong> ${escapeHtml(doc.documentType)}</p>
+                                </div>
+                            </div>
+                        `;
+                    } else if (doc.documentData.startsWith('data:application/pdf')) {
+                        viewerHTML = `
+                            <div>
+                                <iframe src="${escapeHtml(doc.documentData)}" 
+                                        class="pdf-viewer"></iframe>
+                                <div style="margin-top:15px;text-align:left;color:#64748b;">
+                                    <p><strong>Volunteer:</strong> ${escapeHtml(doc.volunteerName)}</p>
+                                    <p><strong>Document Type:</strong> ${escapeHtml(doc.documentType)}</p>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        const safeName = (doc.volunteerName.replace(/[^a-z0-9]/gi, '_') + '_' + doc.documentType.replace(/\s+/g, '_')).toLowerCase();
+                        viewerHTML = `
+                            <div class="pdf-placeholder">
+                                <i class="fas fa-file"></i>
+                                <h3>${escapeHtml(doc.documentType)}</h3>
+                                <p><strong>Volunteer:</strong> ${escapeHtml(doc.volunteerName)}</p>
+                                <button class="action-btn download-btn" 
+                                        onclick="downloadFile('${escapeJs(doc.documentData)}', '${safeName}')">
+                                    <i class="fas fa-download"></i> Download File
+                                </button>
+                            </div>
+                        `;
+                    }
+                } else {
+                    if (doc.documentData.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i)) {
+                        viewerHTML = `
+                            <div style="text-align:center;">
+                                <img src="${escapeHtml(doc.documentData)}" 
+                                     style="max-width:100%;max-height:65vh;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+                            </div>
+                        `;
+                    } else if (doc.documentData.match(/\.pdf$/i)) {
+                        viewerHTML = `
+                            <div>
+                                <iframe src="${escapeHtml(doc.documentData)}" 
+                                        class="pdf-viewer"></iframe>
+                            </div>
+                        `;
+                    } else {
+                        window.open(doc.documentData, '_blank');
+                        return;
+                    }
+                }
+                
+                documentBody.innerHTML = viewerHTML;
+                documentModal.classList.add('show');
+            } catch (error) {
+                console.error('View error:', error);
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // View All Documents
+        function viewAllDocs(volJson) {
+            try {
+                const volunteer = JSON.parse(volJson);
+                documentTitle.textContent = volunteer.name + ' - All Documents';
+                
+                let viewerHTML = `
+                    <div style="max-width:800px;margin:0 auto;">
+                        <div style="background:#f8fafc;padding:20px;border-radius:8px;margin-bottom:20px;">
+                            <h4>Volunteer Information</h4>
+                            <p><strong>Name:</strong> ${escapeHtml(volunteer.name)}</p>
+                            <p><strong>Email:</strong> ${escapeHtml(volunteer.email)}</p>
+                            <p><strong>Status:</strong> ${volunteer.status || 'Active'}</p>
+                            <p><strong>Registered:</strong> ${formatDate(volunteer.registeredAt)}</p>
+                        </div>
+                        
+                        <h4>Documents (${volunteer.documents.length})</h4>
+                `;
+                
+                if (volunteer.documents.length === 0) {
+                    viewerHTML += `
+                        <div style="text-align:center;padding:40px;color:#64748b;">
+                            <i class="fas fa-folder-open" style="font-size:48px;margin-bottom:15px;"></i>
+                            <h3>No Documents Available</h3>
+                        </div>
+                    `;
+                } else {
+                    viewerHTML += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:15px;">';
+                    
+                    volunteer.documents.forEach((doc, index) => {
+                        const docData = {
+                            volunteerName: volunteer.name,
+                            volunteerEmail: volunteer.email,
+                            documentType: doc.type,
+                            documentName: doc.name,
+                            documentData: doc.data,
+                            isBase64: doc.isBase64,
+                            uploadedAt: volunteer.registeredAt,
+                            icon: doc.icon
+                        };
+                        
+                        const escapedData = escapeJs(JSON.stringify(docData));
+                        
+                        viewerHTML += `
+                            <div style="border:1px solid #e2e8f0;border-radius:8px;padding:15px;text-align:center;">
+                                <i class="fas ${doc.icon}" style="font-size:32px;color:#0f8a30;margin-bottom:10px;"></i>
+                                <h5 style="margin:10px 0;color:#1e293b;">${escapeHtml(doc.type)}</h5>
+                                <button class="doc-btn" onclick="viewDoc('${escapedData}')" style="width:100%;">
+                                    <i class="fas fa-eye"></i> View Document
+                                </button>
+                            </div>
+                        `;
+                    });
+                    
+                    viewerHTML += '</div>';
+                }
+                
+                viewerHTML += '</div>';
+                documentBody.innerHTML = viewerHTML;
+                documentModal.classList.add('show');
+            } catch (error) {
+                console.error('View all error:', error);
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Helper Functions
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function escapeJs(text) {
+            if (!text) return '';
+            return text.toString()
+                .replace(/\\/g, '\\\\')
+                .replace(/'/g, "\\'")
+                .replace(/"/g, '\\"')
+                .replace(/\n/g, '\\n')
+                .replace(/\r/g, '\\r');
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            try {
+                const date = new Date(dateString);
+                if (isNaN(date.getTime())) return dateString;
+                return date.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            } catch(e) {
+                return dateString;
+            }
+        }
+
+        // Download File
+        function downloadFile(base64Data, filename) {
+            try {
+                const link = document.createElement('a');
+                link.href = base64Data;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (error) {
+                console.error('Download error:', error);
+                alert('Download failed');
+            }
+        }
+
+        // Search
+        function setupSearch() {
+            if (searchInput) {
+                searchInput.addEventListener('input', function() {
+                    const term = this.value.toLowerCase().trim();
+                    
+                    if (!term) {
+                        filteredVolunteers = [...allVolunteers];
+                    } else {
+                        filteredVolunteers = allVolunteers.filter(volunteer => {
+                            return (
+                                (volunteer.name && volunteer.name.toLowerCase().includes(term)) ||
+                                (volunteer.email && volunteer.email.toLowerCase().includes(term)) ||
+                                (volunteer.documents.some(doc => 
+                                    doc.type && doc.type.toLowerCase().includes(term)
+                                ))
+                            );
+                        });
+                    }
+                    
+                    currentPage = 1;
+                    renderVolunteersTable();
+                });
+            }
+        }
+
+        // Event Listeners
+        function setupEventListeners() {
+            if (prevBtn) {
+                prevBtn.addEventListener('click', () => {
+                    if (currentPage > 1) {
+                        currentPage--;
+                        renderVolunteersTable();
+                    }
+                });
+            }
+
+            if (nextBtn) {
+                nextBtn.addEventListener('click', () => {
+                    const maxPage = Math.ceil(filteredVolunteers.length / itemsPerPage);
+                    if (currentPage < maxPage) {
+                        currentPage++;
+                        renderVolunteersTable();
+                    }
+                });
+            }
+
+            if (closeModal) {
+                closeModal.addEventListener('click', () => {
+                    documentModal.classList.remove('show');
+                });
+            }
+
+            if (documentModal) {
+                documentModal.addEventListener('click', (e) => {
+                    if (e.target === documentModal) {
+                        documentModal.classList.remove('show');
+                    }
+                });
+            }
+
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', () => {
+                    if (confirm('Are you sure you want to logout?')) {
+                        localStorage.removeItem('adminData');
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('adminSession');
+                        
+                        if (auth.currentUser) {
+                            auth.signOut().catch(console.error);
+                        }
+                        
+                        window.location.href = 'login.html';
+                    }
+                });
+            }
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    documentModal.classList.remove('show');
+                }
+            });
+        }
+
+        // Initialize
+        function initializePage() {
+            if (!checkAuth()) return;
+            
+            console.log('Initializing page...');
+            loadUserProfile();
+            loadAllVolunteers();
+            setupSearch();
+            setupEventListeners();
+            
+            // Real-time updates
+            db.ref('volunteers').on('value', () => {
+                console.log('Data updated, refreshing...');
+                loadAllVolunteers();
+            });
+        }
+
+        // Global Functions
+        window.viewDoc = viewDoc;
+        window.viewAllDocs = viewAllDocs;
+        window.downloadFile = downloadFile;
+
+        // Start
+        document.addEventListener('DOMContentLoaded', initializePage);
+    </script>
+</body>
+</html>

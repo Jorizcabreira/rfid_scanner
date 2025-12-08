@@ -1,4 +1,7 @@
 // server.js
+require('dotenv').config();
+console.log("FROM_EMAIL =", process.env.FROM_EMAIL); // should print value
+
 const admin = require('firebase-admin');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 const serviceAccount = require('./serviceAccountKey.json');

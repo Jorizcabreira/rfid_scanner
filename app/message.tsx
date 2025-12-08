@@ -26,8 +26,9 @@ import {
 // ✅ FIREBASE IMPORTS
 import { auth, database } from '../firebaseConfig';
 
-// ✅ EXPO NOTIFICATIONS ONLY (React Native Firebase not compatible with Expo)
+// ✅ EXPO NOTIFICATIONS
 import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
 
 // ✅ CONFIGURE NOTIFICATIONS
 Notifications.setNotificationHandler({
@@ -90,6 +91,7 @@ const MessagesScreen = () => {
   const [showMessageMenu, setShowMessageMenu] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [fcmToken, setFcmToken] = useState<string>('');
+  const [notificationPermission, setNotificationPermission] = useState<boolean>(false);
   
   const flatListRef = useRef<FlatList<Message>>(null);
   const [error, setError] = useState<string | null>(null);
@@ -104,305 +106,181 @@ const MessagesScreen = () => {
     console.log('🔄 ============ MESSAGES STATE CHANGED ============');
     console.log('🔄 Messages count:', messages.length);
     console.log('🔄 Messages IDs:', messages.map(m => m.id));
-    console.log('🔄 First 3 messages:', messages.slice(0, 3).map(m => ({
-      id: m.id, 
-      sender: m.sender, 
-      text: m.text?.substring(0, 30)
-    })));
-    console.log('🔄 FlatList should now render', messages.length, 'messages');
   }, [messages]);
 
-  // Keyboard listeners - scroll to bottom when keyboard appears
+  // ==================== PUSH NOTIFICATION SETUP ====================
   useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener(
-      'keyboardDidShow',
-      () => {
-        console.log('⌨️ Keyboard opened - scrolling to bottom');
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: true });
-        }, 100);
-      }
-    );
+    let isMounted = true;
 
-    return () => {
-      keyboardDidShowListener.remove();
-    };
-  }, []);
+    const setupPushNotifications = async () => {
+      try {
+        console.log('🔔 Setting up push notifications...');
+        
+        // Request permissions
+        const { status } = await Notifications.requestPermissionsAsync();
+        const enabled = status === 'granted';
+        setNotificationPermission(enabled);
+        
+        console.log('Notification permission:', status);
 
-  // ==================== FCM NOTIFICATION SETUP ====================
-
-  // Request Expo Push Notifications permissions and get token
-  const requestFcmPermission = async (): Promise<boolean> => {
-    try {
-      console.log('🔔 Requesting push notification permissions...');
-      
-      const { status } = await Notifications.requestPermissionsAsync();
-      const enabled = status === 'granted';
-
-      console.log('Notification Authorization status:', status, 'Enabled:', enabled);
-
-      if (enabled) {
-        try {
+        if (enabled) {
+          // Get token
           const tokenData = await Notifications.getExpoPushTokenAsync({
             projectId: '15369961-bc79-4ea5-a604-b52f908a92ae'
           });
           const token = tokenData.data;
-          console.log('✅ Expo Push Token obtained:', token.substring(0, 20) + '...');
           setFcmToken(token);
+          console.log('✅ Expo Push Token obtained:', token.substring(0, 20) + '...');
           
-          // Try to store Expo Push token in database (optional - won't fail if permission denied)
+          // Store token in Firebase
           const user = auth.currentUser;
           if (user) {
             try {
               await update(ref(database, `users/${user.uid}`), {
                 expoPushToken: token,
-                tokenUpdated: Date.now()
+                tokenUpdated: Date.now(),
+                deviceId: Device.modelName || 'Unknown',
+                platform: Platform.OS
               });
               console.log('✅ Expo Push token stored in database');
             } catch (dbError) {
-              console.warn('⚠️ Could not save push token to database (permission denied):', dbError);
-              // Continue anyway - token is still stored locally
+              console.warn('⚠️ Could not save push token to database:', dbError);
             }
           }
-          
-          return true;
-        } catch (tokenError) {
-          console.warn('⚠️ Error getting push token (continuing anyway):', tokenError);
-          // Continue without push notifications
-          return false;
+
+          // Setup notification handlers
+          const notificationReceivedSubscription = Notifications.addNotificationReceivedListener(notification => {
+            console.log('📱 Notification received in foreground:', notification.request.content.data);
+            
+            const data = notification.request.content.data;
+            if (data.type === 'teacher_message' && data.studentId) {
+              // Refresh messages if it's for current student
+              if (selectedStudent?.id === data.studentId) {
+                console.log('🔄 Refreshing messages due to foreground notification');
+                loadMessages(String(data.studentId));
+              }
+            }
+          });
+
+          const notificationResponseSubscription = Notifications.addNotificationResponseReceivedListener(response => {
+            console.log('📱 Notification tapped:', response.notification.request.content.data);
+            
+            const data = response.notification.request.content.data;
+            if (data.type === 'teacher_message') {
+              // Mark message as read
+              if (data.studentId && data.messageId) {
+                const messageRef = ref(database, `messages/${data.studentId}/${data.messageId}`);
+                update(messageRef, { read: true });
+              }
+              
+              // Navigate to messages screen if not already there
+              setTimeout(() => {
+                if (router && typeof router.push === 'function') {
+                  router.push('./messages');
+                }
+              }, 100);
+            }
+          });
+
+          // Store cleanup functions
+          cleanupRefs.current.push(() => {
+            notificationReceivedSubscription.remove();
+            notificationResponseSubscription.remove();
+          });
+
+          // Check for initial notification (app opened from notification)
+          const lastNotification = await Notifications.getLastNotificationResponseAsync();
+          if (lastNotification) {
+            console.log('📱 App opened from notification:', lastNotification.notification.request.content.data);
+            const data = lastNotification.notification.request.content.data;
+            if (data.type === 'teacher_message' && data.studentId) {
+              // Mark as read
+              if (data.messageId) {
+                const messageRef = ref(database, `messages/${data.studentId}/${data.messageId}`);
+                update(messageRef, { read: true });
+              }
+            }
+          }
+        } else {
+          console.log('❌ Notification permission not granted');
         }
-      } else {
-        console.log('❌ Push notification permission not granted');
-        return false;
+      } catch (error) {
+        console.warn('⚠️ Error in notification setup:', error);
+      }
+    };
+
+    setupPushNotifications();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // ==================== CHECK PENDING NOTIFICATIONS ON APP START ====================
+  useEffect(() => {
+    if (selectedStudent?.id) {
+      checkPendingPushNotifications(selectedStudent.id);
+    }
+  }, [selectedStudent]);
+
+  const checkPendingPushNotifications = async (studentId: string) => {
+    try {
+      console.log('📱 Checking pending push notifications for student:', studentId);
+      
+      const pushQueueRef = ref(database, `pushQueue/${studentId}`);
+      const snapshot = await get(pushQueueRef);
+      
+      if (snapshot.exists()) {
+        const notifications = snapshot.val();
+        let pendingCount = 0;
+        
+        for (const key in notifications) {
+          const notif = notifications[key];
+          if (notif && !notif.delivered && notif.fcmSent === false) {
+            pendingCount++;
+            
+            // Show local notification for pending messages
+            await Notifications.scheduleNotificationAsync({
+              content: {
+                title: `💬 ${notif.teacherName || 'Teacher'}`,
+                body: notif.message?.substring(0, 100) || 'New message',
+                data: {
+                  type: 'teacher_message',
+                  studentId: notif.studentId,
+                  messageId: notif.messageId,
+                  timestamp: notif.timestamp
+                },
+                sound: true,
+                badge: 1
+              },
+              trigger: null
+            });
+            
+            // Mark as delivered
+            await update(ref(database, `pushQueue/${studentId}/${key}`), {
+              delivered: true,
+              deliveredAt: Date.now(),
+              deliveredVia: 'local_on_open'
+            });
+          }
+        }
+        
+        if (pendingCount > 0) {
+          console.log(`✅ Showed ${pendingCount} pending notifications`);
+        }
       }
     } catch (error) {
-      console.warn('⚠️ Error in notification setup (continuing anyway):', error);
-      return false;
-    }
-  };
-
-  // Setup Expo Push Notification listeners
-  const setupFcmListeners = () => {
-    console.log('🔔 Setting up Expo Push Notification listeners...');
-
-    // ✅ Handle notification responses (user taps notification)
-    const notificationResponseSubscription = Notifications.addNotificationResponseReceivedListener(response => {
-      console.log('📱 Notification tapped:', response.notification.request.content.data);
-      handleNotificationTap(response.notification.request.content.data);
-      
-      // Refresh messages if it's a teacher message
-      if (response.notification.request.content.data?.type === 'teacher_message' && selectedStudent) {
-        console.log('🔄 Refreshing messages due to new teacher message');
-        loadMessages(selectedStudent.id);
-      }
-    });
-
-    // ✅ Handle notifications received while app is in foreground
-    const notificationReceivedSubscription = Notifications.addNotificationReceivedListener(notification => {
-      console.log('📱 Notification received in foreground:', notification.request.content.data);
-      
-      // Refresh messages if it's a teacher message
-      if (notification.request.content.data?.type === 'teacher_message' && selectedStudent) {
-        console.log('🔄 Refreshing messages due to new teacher message');
-        loadMessages(selectedStudent.id);
-      }
-    });
-
-    // Store cleanup functions
-    cleanupRefs.current.push(() => {
-      notificationResponseSubscription.remove();
-      notificationReceivedSubscription.remove();
-    });
-  };
-
-  // Handle notification tap
-  const handleNotificationTap = async (data: any) => {
-    console.log('🔔 Handling notification tap:', data);
-    if (data.type === 'teacher_message') {
-      console.log('📱 Teacher message notification tapped - navigating to message screen and refreshing');
-      // If studentId is present in notification data, use it to refresh messages
-      if (data.studentId) {
-        // Optionally, navigate to message screen if not already there
-        if (router && typeof router.push === 'function') {
-          router.push('/message');
-        }
-        // Mark teacher messages as read and reload messages for the student
-        await markTeacherMessagesAsRead(data.studentId);
-        const messagesRef = ref(database, `messages/${data.studentId}`);
-        get(messagesRef).then(snapshot => {
-          if (snapshot.exists()) {
-            const messagesData = snapshot.val();
-            const messagesArray: Message[] = [];
-            for (const messageId in messagesData) {
-              messagesArray.push({ id: messageId, ...messagesData[messageId] });
-            }
-            messagesArray.sort((a, b) => a.timestamp - b.timestamp);
-            setMessages(messagesArray);
-            setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: true });
-            }, 300);
-            console.log('✅ Messages refreshed from notification tap');
-          }
-        });
-      }
+      console.warn('⚠️ Error checking pending notifications:', error);
     }
   };
 
   // ==================== BACK NAVIGATION HANDLER ====================
   const handleBackPress = () => {
     console.log('🔙 Back button pressed - navigating back to home');
-    router.push('/(tabs)/home'); // ✅ Babalik sa home tab
-  };
-
-  // ==================== NOTIFICATION SETUP ====================
-
-  useEffect(() => {
-    const initializeNotifications = async () => {
-      try {
-        console.log('🔔 Initializing notification system...');
-        
-        // Configure notification behavior
-        await Notifications.setNotificationChannelAsync('messages', {
-          name: 'Messages',
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#1999e8',
-          sound: 'default',
-        });
-
-        // Request FCM permissions (don't block if it fails)
-        await requestFcmPermission();
-        
-        // Setup FCM listeners
-        setupFcmListeners();
-
-        console.log('✅ Notification system initialized successfully');
-
-      } catch (error) {
-        console.warn('⚠️ Error initializing notifications (continuing anyway):', error);
-        // Don't block the app if notifications fail
-      }
-    };
-
-    // Initialize notifications but don't wait for it
-    initializeNotifications().catch(err => {
-      console.warn('⚠️ Notification initialization failed:', err);
-    });
-
-    // Check initial notification (when app opened from notification)
-    Notifications.getLastNotificationResponseAsync()
-      .then(response => {
-        if (response) {
-          console.log('📱 App opened from message notification:', response.notification.request.content.data);
-          handleNotificationTap(response.notification.request.content.data);
-        }
-      });
-
-    return () => {
-      console.log('🧹 Cleaning up notification listeners ONLY (not message listeners)');
-      // Only cleanup notification listeners, not database listeners
-    };
-  }, []); // ← Remove selectedStudent dependency!
-
-  // ==================== TEACHER MESSAGE LISTENER FOR PUSH NOTIFICATIONS ====================
-
-  // Listen for teacher messages and send PUSH notifications (NOT storage notifications)
-  const setupTeacherMessageListener = (studentId: string) => {
-    console.log('🔔 Setting up teacher message push notification listener for student:', studentId);
-    
-    const messagesRef = ref(database, `messages/${studentId}`);
-    const messagesQuery = query(messagesRef, orderByChild('timestamp'));
-
-    let lastMessageTimestamp = Date.now(); // Track last message time to avoid duplicates
-
-    const messageListener = onValue(messagesQuery, (snapshot) => {
-      if (snapshot.exists()) {
-        const messagesData = snapshot.val();
-        const messagesArray: Message[] = [];
-
-        for (const messageId in messagesData) {
-          messagesArray.push({
-            id: messageId,
-            ...messagesData[messageId]
-          });
-        }
-
-        // Sort by timestamp
-        messagesArray.sort((a, b) => a.timestamp - b.timestamp);
-        
-        // Check for new teacher messages that arrived after we started listening
-        const newTeacherMessages = messagesArray.filter(msg => 
-          msg.sender === 'teacher' && 
-          msg.timestamp > lastMessageTimestamp
-        );
-
-        if (newTeacherMessages.length > 0 && selectedStudent) {
-          const latestMessage = newTeacherMessages[newTeacherMessages.length - 1];
-          
-          console.log('🔔 NEW TEACHER MESSAGE DETECTED - SENDING PUSH NOTIFICATION ONLY');
-          console.log('Message timestamp:', latestMessage.timestamp);
-          console.log('Last known timestamp:', lastMessageTimestamp);
-          
-          // Update last known timestamp
-          lastMessageTimestamp = latestMessage.timestamp;
-
-          // ✅ CRITICAL: Send PUSH notification ONLY - NO STORAGE in parentNotifications
-          sendTeacherMessagePushNotification(latestMessage, selectedStudent, teacher);
-
-          // Mark message as read in Firebase if app is open
-          const messageRef = ref(database, `messages/${studentId}/${latestMessage.id}`);
-          update(messageRef, { read: true });
-        }
-
-        setMessages(messagesArray);
-      }
-    });
-
-    // ✅ FIXED: Proper cleanup using the returned unsubscribe function
-    cleanupRefs.current.push(() => {
-      console.log('🧹 Cleaning up teacher message listener');
-      messageListener(); // Call the function to unsubscribe
-    });
-  };
-
-  // ✅ NEW: Send PUSH notification for teacher messages (NO storage in notifications)
-  const sendTeacherMessagePushNotification = async (message: Message, student: Student, teacher: Teacher | null) => {
-    try {
-      const teacherName = teacher?.name || 'Teacher';
-      const studentName = `${student.firstName} ${student.lastName || ''}`.trim();
-      
-      console.log('🔔 Sending PUSH notification for teacher message');
-
-      // Send push notification that will appear even when app is closed
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: `💬 ${teacherName}`,
-          body: message.text.substring(0, 100) + (message.text.length > 100 ? '...' : ''),
-          data: {
-            type: 'teacher_message',
-            studentId: student.id,
-            studentName: studentName,
-            teacherName: teacherName,
-            messageId: message.id,
-            timestamp: Date.now(),
-            // ✅ CRITICAL: This ensures it doesn't go to notification page
-            isPushOnly: true
-          },
-          sound: true,
-          badge: 1,
-        },
-        trigger: null,
-      });
-
-      console.log('✅ TEACHER MESSAGE PUSH NOTIFICATION SENT - WILL APPEAR AS POPUP');
-
-    } catch (error) {
-      console.error('❌ Error sending teacher message push notification:', error);
-    }
+    router.push('/(tabs)/home');
   };
 
   // ==================== MESSAGE SCREEN ORIGINAL CODE ====================
-
   useEffect(() => {
     console.log('MessagesScreen mounted');
     const user = auth.currentUser;
@@ -439,7 +317,7 @@ const MessagesScreen = () => {
 
     console.log('Starting data load for user:', user.email);
     
-    // Safety timeout: if data doesn't load in 10 seconds, stop loading
+    // Safety timeout
     const loadingTimeout = setTimeout(() => {
       console.warn('⚠️ Data loading timeout - forcing loading to stop');
       setLoading(false);
@@ -458,8 +336,7 @@ const MessagesScreen = () => {
       }
     }, (error) => {
       console.warn('⚠️ Error loading parent data:', error);
-      setParentName('Parent'); // Use default name
-      // Don't stop loading - continue to load other data
+      setParentName('Parent');
     });
 
     cleanupRefs.current.push(parentUnsubscribe);
@@ -510,15 +387,10 @@ const MessagesScreen = () => {
           console.log('✅ ============ STUDENT FOUND ============');
           console.log('✅ Student ID:', foundStudent.id);
           console.log('✅ Student Name:', foundStudent.firstName, foundStudent.lastName);
-          console.log('✅ Student Grade:', foundStudent.gradeLevel);
-          console.log('✅ Student RFID:', foundStudent.rfid);
-          console.log('✅ Now loading messages for this student...');
           
           setSelectedStudent(foundStudent);
           findTeacherByGradeLevel(foundStudent.gradeLevel);
           loadMessages(foundStudent.id, () => clearTimeout(loadingTimeout));
-          // ✅ Setup teacher message listener for PUSH notifications only
-          setupTeacherMessageListener(foundStudent.id);
         } else {
           console.log('❌ No linked student found for email:', user.email);
           setError(`No student found linked to your email (${user.email}). Please contact the school administrator.`);
@@ -556,7 +428,6 @@ const MessagesScreen = () => {
           const userData = usersData[userId];
           console.log('Checking user:', userId, userData.firstname, userData.gradeLevel);
           
-          // ✅ FIXED: Better teacher identification logic
           if (userData.gradeLevel === gradeLevel && userData.role === 'teacher') {
             console.log('✅ Found matching teacher:', userData.firstname);
             foundTeacher = {
@@ -635,16 +506,13 @@ const MessagesScreen = () => {
       }
     } catch (error) {
       console.warn('⚠️ Error marking messages as read:', error);
-      // Don't block if this fails
     }
   };
 
   const loadMessages = (studentId: string, clearLoadingTimeout?: () => void) => {
     console.log('📨 ============ LOADING MESSAGES ============');
     console.log('📨 Student ID:', studentId);
-    console.log('📨 Current messages count:', messages.length);
     console.log('📨 Firebase path:', `messages/${studentId}`);
-    console.log('📨 Parent email:', auth.currentUser?.email);
     
     const messagesRef = ref(database, `messages/${studentId}`);
     const messagesQuery = query(messagesRef, orderByChild('timestamp'));
@@ -658,18 +526,15 @@ const MessagesScreen = () => {
       console.log('📬 ============ SNAPSHOT RECEIVED ============');
       console.log('📬 Student ID:', studentId);
       console.log('📬 Snapshot exists:', snapshot.exists());
-      console.log('📬 Snapshot key:', snapshot.key);
       
       if (snapshot.exists()) {
         const messagesData = snapshot.val();
-        console.log('📬 Raw messages data:', JSON.stringify(messagesData).substring(0, 200));
         console.log('📬 Number of messages:', Object.keys(messagesData).length);
         
         const messagesArray: Message[] = [];
 
         for (const messageId in messagesData) {
           const message = messagesData[messageId];
-          console.log('Processing message:', messageId, message.sender, message.text?.substring(0, 30));
           messagesArray.push({
             id: messageId,
             ...message
@@ -680,13 +545,6 @@ const MessagesScreen = () => {
         messagesArray.sort((a, b) => a.timestamp - b.timestamp);
         console.log('📬 ============ MESSAGES LOADED ============');
         console.log(`📬 Total messages: ${messagesArray.length}`);
-        console.log('📬 First 5 messages:', messagesArray.slice(0, 5).map(m => ({
-          id: m.id, 
-          sender: m.sender, 
-          text: m.text?.substring(0, 30),
-          timestamp: new Date(m.timestamp).toLocaleString()
-        })));
-        console.log('📬 Calling setMessages() now...');
         
         setMessages(messagesArray);
         console.log('📬 setMessages() called! State should update.');
@@ -701,7 +559,7 @@ const MessagesScreen = () => {
     }, (error) => {
       console.warn('⚠️ Error loading messages:', error);
       setError('Failed to load messages. Please check Firebase rules.');
-      setMessages([]); // Show empty messages instead of stuck loading
+      setMessages([]);
       
       if (clearLoadingTimeout) clearLoadingTimeout();
       setLoading(false);
@@ -955,13 +813,6 @@ const MessagesScreen = () => {
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
-    console.log('🎨 ============ RENDERING MESSAGE ============');
-    console.log('🎨 Index:', index);
-    console.log('🎨 Message ID:', item.id);
-    console.log('🎨 Sender:', item.sender);
-    console.log('🎨 Text:', item.text?.substring(0, 50));
-    console.log('🎨 Timestamp:', new Date(item.timestamp).toLocaleString());
-    
     const showDate = index === 0 || 
       formatDate(item.timestamp) !== formatDate(messages[index - 1]?.timestamp);
 
@@ -1100,7 +951,10 @@ const MessagesScreen = () => {
           <ActivityIndicator size="large" color="#1999e8" />
           <Text style={styles.loadingText}>Loading messages...</Text>
           <Text style={styles.fcmStatus}>
-            {fcmToken ? '✅ Notifications enabled' : '⏳ Setting up notifications...'}
+            {notificationPermission 
+              ? (fcmToken ? '✅ Notifications enabled' : '⏳ Setting up notifications...')
+              : '🔕 Notifications disabled'
+            }
           </Text>
           <TouchableOpacity onPress={handleRetry} style={styles.retryButton}>
             <Text style={styles.retryButtonText}>Retry</Text>
@@ -1168,9 +1022,6 @@ const MessagesScreen = () => {
           </TouchableOpacity>
           
           <View style={styles.teacherInfo}>
-            <LinearGradient colors={['#10b981', '#34d399']} style={styles.teacherAvatar}>
-              <Ionicons name="person" size={20} color="#fff" />
-            </LinearGradient>
             <View style={styles.teacherDetails}>
               <Text style={styles.teacherName}>
                 {teacher?.name || `${selectedStudent.gradeLevel} Teacher`}
@@ -1179,10 +1030,15 @@ const MessagesScreen = () => {
                 {teacher?.gradeLevel || selectedStudent.gradeLevel} Teacher
                 {selectedStudent.section && selectedStudent.section !== 'N/A' && ` • ${selectedStudent.section}`}
               </Text>
+              <Text style={styles.notificationStatus}>
+                {notificationPermission 
+                  ? (fcmToken ? '🔔 Notifications active' : '⏳ Setting up...')
+                  : '🔕 Notifications disabled'
+                }
+              </Text>
             </View>
           </View>
           
-          {/* ✅ REMOVED REFRESH BUTTON - Messages auto-update in real-time */}
           <View style={styles.placeholderButton} />
         </View>
       </LinearGradient>
@@ -1195,124 +1051,125 @@ const MessagesScreen = () => {
         <View style={styles.contentContainer}>
           {/* MESSAGES LIST */}
           <FlatList<Message>
-          ref={flatListRef}
-          data={messages}
-          extraData={messages.length}
-          renderItem={renderMessage}
-          keyExtractor={(item) => item.id}
-          style={styles.messagesList}
-          contentContainerStyle={[
-            styles.messagesContent,
-            messages.length === 0 && styles.emptyMessagesContent
-          ]}
-          showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => {
-            console.log('📱 FlatList content size changed - scrolling to end');
-            flatListRef.current?.scrollToEnd({ animated: true });
-          }}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons name="chatbubble-ellipses-outline" size={60} color="#d1d5db" />
-              <Text style={styles.emptyTitle}>No messages yet</Text>
-              <Text style={styles.emptyText}>
-                Start a conversation with {teacher?.name || 'the teacher'}
-              </Text>
-              <Text style={styles.notificationHint}>
-                🔔 Teacher messages will appear as push notifications
-              </Text>
-            </View>
-          }
-        />
+            ref={flatListRef}
+            data={messages}
+            extraData={messages.length}
+            renderItem={renderMessage}
+            keyExtractor={(item) => item.id}
+            style={styles.messagesList}
+            contentContainerStyle={[
+              styles.messagesContent,
+              messages.length === 0 && styles.emptyMessagesContent
+            ]}
+            showsVerticalScrollIndicator={false}
+            onContentSizeChange={() => {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Ionicons name="chatbubble-ellipses-outline" size={60} color="#d1d5db" />
+                <Text style={styles.emptyTitle}>No messages yet</Text>
+                <Text style={styles.emptyText}>
+                  Start a conversation with {teacher?.name || 'the teacher'}
+                </Text>
+                <Text style={styles.notificationHint}>
+                  {notificationPermission 
+                    ? '🔔 Teacher messages will appear as push notifications'
+                    : '🔕 Enable notifications to receive alerts'
+                  }
+                </Text>
+              </View>
+            }
+          />
 
-        {/* Editing Indicator */}
-        {editingMessage && (
-          <View style={styles.editingIndicator}>
-            <Text style={styles.editingText}>Editing message</Text>
-            <TouchableOpacity onPress={cancelEditing}>
-              <Ionicons name="close" size={20} color="#ef4444" />
+          {/* Editing Indicator */}
+          {editingMessage && (
+            <View style={styles.editingIndicator}>
+              <Text style={styles.editingText}>Editing message</Text>
+              <TouchableOpacity onPress={cancelEditing}>
+                <Ionicons name="close" size={20} color="#ef4444" />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Message Input */}
+          <View style={styles.inputContainer}>
+            {/* File Picker Button */}
+            <TouchableOpacity 
+              style={styles.attachmentButton}
+              onPress={pickDocument}
+              disabled={uploadingFile}
+            >
+              <Ionicons name="document-outline" size={24} color="#1999e8" />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.attachmentButton}
+              onPress={() => setShowEmojiPicker(!showEmojiPicker)}
+            >
+              <Ionicons name="happy-outline" size={24} color="#1999e8" />
+            </TouchableOpacity>
+
+            <TextInput
+              style={styles.textInput}
+              value={newMessage}
+              onChangeText={setNewMessage}
+              placeholder={editingMessage ? "Edit your message..." : "Type your message..."}
+              placeholderTextColor="#9ca3af"
+              multiline
+              maxLength={500}
+              onFocus={() => {
+                setTimeout(() => {
+                  flatListRef.current?.scrollToEnd({ animated: true });
+                }, 100);
+              }}
+            />
+            
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                (!newMessage.trim() || uploadingFile) && styles.sendButtonDisabled
+              ]}
+              onPress={sendMessage}
+              disabled={!newMessage.trim() || uploadingFile}
+            >
+              {uploadingFile ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="send" size={20} color="#fff" />
+              )}
             </TouchableOpacity>
           </View>
-        )}
 
-        {/* Message Input */}
-        <View style={styles.inputContainer}>
-          {/* File Picker Button */}
-          <TouchableOpacity 
-            style={styles.attachmentButton}
-            onPress={pickDocument}
-            disabled={uploadingFile}
+          {/* Emoji Picker */}
+          <Modal
+            visible={showEmojiPicker}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setShowEmojiPicker(false)}
           >
-            <Ionicons name="document-outline" size={24} color="#1999e8" />
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.attachmentButton}
-            onPress={() => setShowEmojiPicker(!showEmojiPicker)}
-          >
-            <Ionicons name="happy-outline" size={24} color="#1999e8" />
-          </TouchableOpacity>
-
-          <TextInput
-            style={styles.textInput}
-            value={newMessage}
-            onChangeText={setNewMessage}
-            placeholder={editingMessage ? "Edit your message..." : "Type your message..."}
-            placeholderTextColor="#9ca3af"
-            multiline
-            maxLength={500}
-            onFocus={() => {
-              // Scroll to bottom when input is focused
-              setTimeout(() => {
-                flatListRef.current?.scrollToEnd({ animated: true });
-              }, 100);
-            }}
-          />
-          
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              (!newMessage.trim() || uploadingFile) && styles.sendButtonDisabled
-            ]}
-            onPress={sendMessage}
-            disabled={!newMessage.trim() || uploadingFile}
-          >
-            {uploadingFile ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Ionicons name="send" size={20} color="#fff" />
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Emoji Picker */}
-        <Modal
-          visible={showEmojiPicker}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowEmojiPicker(false)}
-        >
-          <View style={styles.emojiPickerContainer}>
-            <View style={styles.emojiPicker}>
-              <View style={styles.emojiPickerHeader}>
-                <Text style={styles.emojiPickerTitle}>Choose an emoji</Text>
-                <TouchableOpacity onPress={() => setShowEmojiPicker(false)}>
-                  <Ionicons name="close" size={24} color="#374151" />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.emojiGrid}>
-                {emojis.map((emoji, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.emojiButton}
-                    onPress={() => addEmoji(emoji)}
-                  >
-                    <Text style={styles.emojiText}>{emoji}</Text>
+            <View style={styles.emojiPickerContainer}>
+              <View style={styles.emojiPicker}>
+                <View style={styles.emojiPickerHeader}>
+                  <Text style={styles.emojiPickerTitle}>Choose an emoji</Text>
+                  <TouchableOpacity onPress={() => setShowEmojiPicker(false)}>
+                    <Ionicons name="close" size={24} color="#374151" />
                   </TouchableOpacity>
-                ))}
+                </View>
+                <View style={styles.emojiGrid}>
+                  {emojis.map((emoji, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={styles.emojiButton}
+                      onPress={() => addEmoji(emoji)}
+                    >
+                      <Text style={styles.emojiText}>{emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
             </View>
-          </View>
-        </Modal>
+          </Modal>
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -1407,7 +1264,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     letterSpacing: 0.3,
   },
-  // HEADER - Enhanced Modern Design
+  // HEADER
   header: {
     paddingTop: 60,
     paddingBottom: 25,
@@ -1433,21 +1290,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     marginHorizontal: 12,
-  },
-  teacherAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-    borderWidth: 3,
-    borderColor: 'rgba(255,255,255,0.3)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
   },
   teacherDetails: {
     flex: 1,
@@ -1649,7 +1491,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#cbd5e1',
     shadowOpacity: 0,
   },
-  // Message Menu Styles - Enhanced
+  // Message Menu Styles
   menuOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -1686,7 +1528,7 @@ const styles = StyleSheet.create({
   deleteMenuText: {
     color: '#ef4444',
   },
-  // Editing Indicator - Enhanced
+  // Editing Indicator
   editingIndicator: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1703,7 +1545,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontStyle: 'italic',
   },
-  // File Message Styles - Enhanced
+  // File Message Styles
   fileContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1725,7 +1567,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     opacity: 0.8,
   },
-  // Emoji Picker Styles - Enhanced
+  // Emoji Picker Styles
   emojiPickerContainer: {
     flex: 1,
     justifyContent: 'flex-end',

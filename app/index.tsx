@@ -394,9 +394,12 @@ const ParentLoginScreen = () => {
         const sessionData = await getSessionData();
         
         if (sessionData && auth.currentUser) {
+          console.log('🟢 Session check: sessionData found:', sessionData);
+          console.log('🟢 Session check: auth.currentUser:', auth.currentUser);
           console.log('✅ Existing valid session found, redirecting to home...');
           router.replace('/home');
         } else if (sessionData && !auth.currentUser) {
+          console.log('🔴 Session check: sessionData exists but auth.currentUser is null. Clearing session.');
           // Session data exists but no auth user - clear invalid session
           await clearSessionData();
         }
@@ -848,6 +851,9 @@ const ParentLoginScreen = () => {
       // Reset failed attempts
       await resetFailedAttempts(identifier);
       await storeSessionData(user);
+      console.log('🟢 After login: auth.currentUser:', auth.currentUser);
+      const sessionDataAfterLogin = await getSessionData();
+      console.log('🟢 After login: sessionData:', sessionDataAfterLogin);
       
       await logLoginAttempt({
         parentUid: sanitizedUid,
@@ -1109,9 +1115,7 @@ const ParentLoginScreen = () => {
             <View style={styles.circle2} />
             <View style={styles.circle3} />
             <View style={styles.headerContent}>
-              <View style={styles.logoContainer}>
-                <Text style={styles.logoEmoji}>🎓</Text>
-              </View>
+              // ...existing code...
               <Text style={styles.titleText}>Parent Portal</Text>
               <Text style={styles.subtitleText}>Secure Access to Your Child's Progress</Text>
               
@@ -1284,13 +1288,7 @@ const ParentLoginScreen = () => {
               </Text>
             </View>
 
-            {/* Account Creation Notice */}
-            <View style={styles.signupLinkContainer}>
-              <Text style={styles.signupText}>
-                Don't have an account?{'\n'}
-                Contact school administration to create your parent account.
-              </Text>
-            </View>
+            // ...existing code...
             </View>
             
             {/* Decorative Footer */}

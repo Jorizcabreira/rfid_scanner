@@ -1,4 +1,3 @@
-// Reports.tsx
 import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Sharing from 'expo-sharing';
@@ -23,6 +22,95 @@ import Icon from 'react-native-vector-icons/FontAwesome';
 import { auth, database } from '../../firebaseConfig';
 
 const { width, height } = Dimensions.get('window');
+
+// Design System Constants
+const COLORS = {
+  primary: '#1999e8',
+  primaryDark: '#1488d0',
+  primaryLight: '#2da8f0',
+  primaryGradient: ['#1999e8', '#1488d0'] as const,
+  
+  success: '#10b981',
+  successLight: '#d1fae5',
+  successDark: '#059669',
+  warning: '#f59e0b',
+  warningLight: '#fef3c7',
+  warningDark: '#d97706',
+  error: '#ef4444',
+  errorLight: '#fee2e2',
+  errorDark: '#dc2626',
+  info: '#06b6d4',
+  infoLight: '#cffafe',
+  infoDark: '#0891b2',
+  
+  white: '#ffffff',
+  gray50: '#f9fafb',
+  gray100: '#f3f4f6',
+  gray200: '#e5e7eb',
+  gray300: '#d1d5db',
+  gray400: '#9ca3af',
+  gray500: '#6b7280',
+  gray600: '#4b5563',
+  gray700: '#374151',
+  gray800: '#1f2937',
+  gray900: '#111827',
+  
+  background: '#f8fafc',
+  card: '#ffffff',
+  cardDark: '#f8fafc',
+};
+
+const SPACING = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+};
+
+const TYPOGRAPHY = {
+  xs: { fontSize: 10, lineHeight: 14, fontFamily: 'System' },
+  sm: { fontSize: 12, lineHeight: 16, fontFamily: 'System' },
+  base: { fontSize: 14, lineHeight: 20, fontFamily: 'System' },
+  lg: { fontSize: 16, lineHeight: 22, fontFamily: 'System' },
+  xl: { fontSize: 18, lineHeight: 24, fontFamily: 'System' },
+  '2xl': { fontSize: 20, lineHeight: 26, fontFamily: 'System' },
+  '3xl': { fontSize: 24, lineHeight: 30, fontFamily: 'System' },
+};
+
+const BORDER_RADIUS = {
+  sm: 6,
+  md: 10,
+  lg: 14,
+  xl: 18,
+  '2xl': 22,
+  full: 999,
+};
+
+const SHADOWS = {
+  sm: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  md: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  lg: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+};
 
 interface Student {
   id: string;
@@ -58,10 +146,7 @@ const Reports: React.FC<any> = ({ navigation }) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(30));
 
-  // Removed loading animation - show content immediately
-
-  // PDF action with proper base64 support
-  const handlePDFAction = async (report: Report, action: 'view' | 'download') => {
+  const handlePDFAction = async (report: Report) => {
     if (!report.fileData) {
       Alert.alert(
         '📄 No PDF Available',
@@ -76,15 +161,14 @@ const Reports: React.FC<any> = ({ navigation }) => {
     try {
       let fileUri = report.fileData;
 
-      // Handle base64 data - convert to file and share
+      // Handle base64 data
       if (report.fileData.startsWith('data:application/pdf;base64,')) {
-        console.log(`📄 Processing base64 PDF for ${action}...`);
+        console.log(`📄 Processing base64 PDF...`);
         
         const base64Data = report.fileData.split('base64,')[1];
         const filename = `${report.childName}_${report.reportType}_${report.quarter}.pdf`
           .replace(/[^a-zA-Z0-9_\-.]/g, '_');
         
-        // Save to cache directory using legacy API
         const cacheDir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
         if (!cacheDir) {
           throw new Error('No cache directory available');
@@ -92,24 +176,21 @@ const Reports: React.FC<any> = ({ navigation }) => {
         
         fileUri = cacheDir + filename;
         
-        // Write base64 to file
         await FileSystem.writeAsStringAsync(fileUri, base64Data, {
           encoding: FileSystem.EncodingType.Base64,
         });
         
         console.log('✅ PDF file created:', fileUri);
         
-        // Use Sharing API to open/share
         const isAvailable = await Sharing.isAvailableAsync();
         
         if (isAvailable) {
           await Sharing.shareAsync(fileUri, {
             mimeType: 'application/pdf',
-            dialogTitle: action === 'download' ? 'Save Report' : 'View Report',
+            dialogTitle: 'Save Report',
             UTI: 'com.adobe.pdf'
           });
         } else {
-          // Fallback: try Linking
           await Linking.openURL(fileUri);
         }
         
@@ -117,7 +198,7 @@ const Reports: React.FC<any> = ({ navigation }) => {
         return;
       }
 
-      // Handle web URLs (Firebase Storage)
+      // Handle web URLs
       if (fileUri.startsWith('http')) {
         const canOpen = await Linking.canOpenURL(fileUri);
         if (canOpen) {
@@ -147,105 +228,11 @@ const Reports: React.FC<any> = ({ navigation }) => {
       }
 
     } catch (error) {
-      console.error(`PDF ${action} error:`, error);
+      console.error(`PDF action error:`, error);
       
       Alert.alert(
         '❌ Operation Failed',
         'Could not open the PDF file. Please make sure you have a PDF viewer app installed.',
-        [{ text: 'OK', style: 'default' as const }]
-      );
-    } finally {
-      setDownloading(null);
-    }
-  };
-
-  const viewPDF = async (report: Report) => {
-    await handlePDFAction(report, 'view');
-  };
-
-  const downloadPDF = async (report: Report) => {
-    await handlePDFAction(report, 'download');
-  };
-
-  // PDF handling with proper base64 support and sharing
-  const handlePDFAlternative = async (report: Report) => {
-    if (!report.fileData) {
-      Alert.alert('No PDF', 'This report does not have a PDF file attached.');
-      return;
-    }
-
-    setDownloading(report.id);
-
-    try {
-      let fileUri = report.fileData;
-
-      // Handle base64 data - convert to file and open
-      if (report.fileData.startsWith('data:application/pdf;base64,')) {
-        console.log('📄 Processing base64 PDF...');
-        
-        const base64Data = report.fileData.split('base64,')[1];
-        const filename = `${report.childName}_${report.reportType}_${report.quarter}.pdf`
-          .replace(/[^a-zA-Z0-9_\-.]/g, '_');
-        
-        // Save to cache directory using legacy API
-        const cacheDir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
-        if (!cacheDir) {
-          throw new Error('No cache directory available');
-        }
-        
-        const pdfFileUri = cacheDir + filename;
-        
-        // Write base64 to file
-        await FileSystem.writeAsStringAsync(pdfFileUri, base64Data, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        
-        console.log('✅ PDF file created:', pdfFileUri);
-        
-        // Check if sharing is available
-        const isAvailable = await Sharing.isAvailableAsync();
-        
-        if (isAvailable) {
-          // Share/Open the PDF file
-          await Sharing.shareAsync(pdfFileUri, {
-            mimeType: 'application/pdf',
-            dialogTitle: 'View/Save Report',
-            UTI: 'com.adobe.pdf'
-          });
-        } else {
-          // Fallback: try to open with Linking
-          await Linking.openURL(pdfFileUri);
-        }
-        
-        setDownloading(null);
-        return;
-      }
-      
-      // Handle direct URLs (Firebase Storage)
-      if (report.fileData.startsWith('http')) {
-        await Linking.openURL(report.fileData);
-        setDownloading(null);
-        return;
-      }
-      
-      // Handle file URIs
-      if (report.fileData.startsWith('file://')) {
-        await Linking.openURL(report.fileData);
-        setDownloading(null);
-        return;
-      }
-      
-      // Unknown format
-      Alert.alert(
-        'Unable to Open',
-        'This report format is not supported. Please contact your school for assistance.',
-        [{ text: 'OK', style: 'default' as const }]
-      );
-    } catch (error) {
-      console.error('PDF handling error:', error);
-      Alert.alert(
-        'Error Opening PDF',
-        'Could not open or save the PDF file. Please make sure you have a PDF viewer app installed.',
         [{ text: 'OK', style: 'default' as const }]
       );
     } finally {
@@ -430,10 +417,26 @@ const Reports: React.FC<any> = ({ navigation }) => {
 
   const getReportTypeConfig = (type: string) => {
     const configs = {
-      'Quarterly Report': { color: '#6366F1', icon: 'bar-chart' as const, gradient: ['#6366F1', '#4F46E5'] as const },
-      'Attendance Summary': { color: '#10B981', icon: 'calendar-check-o' as const, gradient: ['#10B981', '#059669'] as const },
-      'Standardized Test Result': { color: '#F59E0B', icon: 'graduation-cap' as const, gradient: ['#F59E0B', '#D97706'] as const },
-      'default': { color: '#6B7280', icon: 'file-text' as const, gradient: ['#6B7280', '#4B5563'] as const }
+      'Quarterly Report': { 
+        color: COLORS.primary, 
+        icon: 'bar-chart' as const, 
+        gradient: [COLORS.primary, COLORS.primaryDark] as const 
+      },
+      'Attendance Summary': { 
+        color: COLORS.success, 
+        icon: 'calendar-check-o' as const, 
+        gradient: [COLORS.success, COLORS.successDark] as const 
+      },
+      'Standardized Test Result': { 
+        color: COLORS.warning, 
+        icon: 'graduation-cap' as const, 
+        gradient: [COLORS.warning, COLORS.warningDark] as const 
+      },
+      'default': { 
+        color: COLORS.gray500, 
+        icon: 'file-text' as const, 
+        gradient: [COLORS.gray500, COLORS.gray600] as const 
+      }
     };
     
     return configs[type as keyof typeof configs] || configs.default;
@@ -459,105 +462,100 @@ const Reports: React.FC<any> = ({ navigation }) => {
           },
         ]}
       >
-        <LinearGradient
-          colors={['#FFFFFF', '#F8FAFF']}
-          style={styles.cardGradient}
-        >
-          {/* STUDENT INFO SECTION */}
-          <View style={styles.studentSection}>
-            <LinearGradient
-              colors={config.gradient as readonly [string, string]}
-              style={styles.avatarGradient}
-            >
-              <Icon name="user" size={24} color="#FFFFFF" />
-            </LinearGradient>
+        <View style={styles.cardContent}>
+          {/* Header Section */}
+          <View style={styles.headerSection}>
             <View style={styles.studentInfo}>
-              <Text style={styles.studentName} numberOfLines={1}>
-                {item.childName}
-              </Text>
-              <Text style={styles.gradeLevel}>
-                Grade {item.gradeLevel}
-              </Text>
-            </View>
-          </View>
-
-          {/* REPORT TYPE BADGE */}
-          <View style={styles.reportTypeSection}>
-            <LinearGradient
-              colors={config.gradient as readonly [string, string]}
-              style={styles.reportTypeBadge}
-            >
-              <Icon name={config.icon} size={16} color="#FFFFFF" />
-              <Text style={styles.reportTypeText}>
-                {item.reportType}
-              </Text>
-            </LinearGradient>
-          </View>
-
-          {/* DETAILS GRID */}
-          <View style={styles.detailsGrid}>
-            <View style={styles.detailBox}>
-              <View style={[styles.detailIconBox, { backgroundColor: `${config.color}15` }]}>
-                <Icon name="calendar" size={16} color={config.color} />
+              <View style={styles.avatarContainer}>
+                <LinearGradient
+                  colors={config.gradient}
+                  style={styles.avatarGradient}
+                >
+                  <Icon name="user" size={18} color={COLORS.white} />
+                </LinearGradient>
               </View>
-              <Text style={styles.detailTitle}>Quarter & Year</Text>
-              <Text style={styles.detailContent} numberOfLines={1}>
-                {item.quarter} • {item.schoolYear}
-              </Text>
-            </View>
-            
-            <View style={styles.detailBox}>
-              <View style={[styles.detailIconBox, { backgroundColor: `${config.color}15` }]}>
-                <Icon name="clock-o" size={16} color={config.color} />
+              <View style={styles.studentTextContainer}>
+                <Text style={styles.studentName} numberOfLines={1}>
+                  {item.childName}
+                </Text>
+                <Text style={styles.gradeLevel}>
+                  Grade {item.gradeLevel}
+                </Text>
               </View>
-              <Text style={styles.detailTitle}>Upload Date</Text>
-              <Text style={styles.detailContent} numberOfLines={1}>
-                {formatDate(item.uploadDate)}
-              </Text>
             </View>
-          </View>
-
-          <View style={styles.actionContainer}>
-            <TouchableOpacity 
-              style={styles.downloadButton}
-              onPress={() => handlePDFAlternative(item)}
-              disabled={!item.fileData || downloading === item.id}
-              activeOpacity={0.8}
-            >
+            <View style={styles.reportTypeBadge}>
               <LinearGradient
-                colors={item.fileData ? ['#1999e8', '#0e77c0'] as const : ['#94a3b8', '#64748b'] as const}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.downloadButtonGradient}
+                colors={config.gradient}
+                style={styles.typeBadgeGradient}
               >
-                {downloading === item.id ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <>
-                    <View style={styles.downloadIconContainer}>
-                      <Icon name="download" size={22} color="#FFFFFF" />
-                    </View>
-                    <View style={styles.downloadTextContainer}>
-                      <Text style={styles.downloadButtonTitle}>
-                        {item.fileData ? 'Download File' : 'No PDF Available'}
-                      </Text>
-                      <Text style={styles.downloadButtonSubtitle}>
-                        {item.fileData ? 'Tap to view or save report' : 'Report not uploaded yet'}
-                      </Text>
-                    </View>
-                  </>
-                )}
+                <Icon name={config.icon} size={12} color={COLORS.white} />
+                <Text style={styles.reportTypeText}>
+                  {item.reportType}
+                </Text>
               </LinearGradient>
-            </TouchableOpacity>
+            </View>
           </View>
-        </LinearGradient>
+
+          {/* Details Section */}
+          <View style={styles.detailsSection}>
+            <View style={styles.detailRow}>
+              <View style={styles.detailItem}>
+                <View style={[styles.detailIcon, { backgroundColor: `${config.color}15` }]}>
+                  <Icon name="calendar" size={14} color={config.color} />
+                </View>
+                <View style={styles.detailText}>
+                  <Text style={styles.detailLabel}>Quarter & Year</Text>
+                  <Text style={styles.detailValue}>
+                    {item.quarter} • {item.schoolYear}
+                  </Text>
+                </View>
+              </View>
+              
+              <View style={styles.detailItem}>
+                <View style={[styles.detailIcon, { backgroundColor: `${config.color}15` }]}>
+                  <Icon name="clock-o" size={14} color={config.color} />
+                </View>
+                <View style={styles.detailText}>
+                  <Text style={styles.detailLabel}>Upload Date</Text>
+                  <Text style={styles.detailValue}>
+                    {formatDate(item.uploadDate)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* Action Button */}
+          <TouchableOpacity 
+            style={styles.downloadButton}
+            onPress={() => handlePDFAction(item)}
+            disabled={!item.fileData || downloading === item.id}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={item.fileData ? [COLORS.primary, COLORS.primaryDark] : [COLORS.gray400, COLORS.gray500]}
+              style={styles.downloadButtonGradient}
+            >
+              {downloading === item.id ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <View style={styles.buttonContent}>
+                  <Icon name="download" size={16} color={COLORS.white} />
+                  <Text style={styles.downloadButtonText}>
+                    {item.fileData ? 'Download Report' : 'No PDF Available'}
+                  </Text>
+                </View>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
       </Animated.View>
     );
   };
 
   const renderFilterButtons = () => (
     <Animated.View style={[styles.filterContainer, { opacity: fadeAnim }]}>
-      <Text style={styles.filterTitle}>📊 Filter Reports</Text>
+      <Text style={styles.filterTitle}>Filter Reports</Text>
       <ScrollView 
         horizontal 
         showsHorizontalScrollIndicator={false}
@@ -577,15 +575,11 @@ const Reports: React.FC<any> = ({ navigation }) => {
             ]}
             onPress={() => filterReports(filter.key)}
           >
-            {/* ✅ FIXED: Gradient colors with proper typing */}
-            <LinearGradient
-              colors={selectedFilter === filter.key ? ['#1999e8', '#1488d0'] as const : ['#F8FAFC', '#FFFFFF'] as const}
-              style={styles.filterButtonGradient}
-            >
+            <View style={styles.filterButtonContent}>
               <Icon 
                 name={filter.icon} 
                 size={14} 
-                color={selectedFilter === filter.key ? '#FFFFFF' : '#1999e8'} 
+                color={selectedFilter === filter.key ? COLORS.white : COLORS.primary} 
               />
               <Text style={[
                 styles.filterButtonText,
@@ -593,7 +587,7 @@ const Reports: React.FC<any> = ({ navigation }) => {
               ]}>
                 {filter.label}
               </Text>
-            </LinearGradient>
+            </View>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -603,14 +597,14 @@ const Reports: React.FC<any> = ({ navigation }) => {
   if (initialLoading) {
     return (
       <View style={styles.fullScreenContainer}>
-        <StatusBar barStyle="light-content" backgroundColor="#1999e8" />
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
         <LinearGradient
-          colors={['#1999e8', '#1488d0'] as const}
-          style={styles.loadingGradient}
+          colors={COLORS.primaryGradient}
+          style={styles.loadingContainer}
         >
           <View style={styles.loadingContent}>
-            <ActivityIndicator size={50} color="#FFFFFF" />
-            <Text style={styles.loadingTitle}>Loading Reports...</Text>
+            <ActivityIndicator size="large" color={COLORS.white} />
+            <Text style={styles.loadingText}>Loading Reports...</Text>
           </View>
         </LinearGradient>
       </View>
@@ -619,13 +613,10 @@ const Reports: React.FC<any> = ({ navigation }) => {
 
   return (
     <View style={styles.fullScreenContainer}>
-      <StatusBar barStyle="light-content" backgroundColor="#1999e8" />
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
       
-      {/* HEADER WITH DECORATIVE CIRCLES */}
-      <LinearGradient colors={['#1999e8', '#1488d0', '#0e77c0'] as const} style={styles.header}>
-        <View style={styles.decorativeCircle1} />
-        <View style={styles.decorativeCircle2} />
-        <View style={styles.decorativeCircle3} />
+      {/* Header */}
+      <LinearGradient colors={COLORS.primaryGradient} style={styles.header}>
         <View style={styles.headerContent}>
           <View>
             <Text style={styles.headerTitle}>📚 Student Reports</Text>
@@ -646,8 +637,8 @@ const Reports: React.FC<any> = ({ navigation }) => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            colors={['#1999e8']}
-            tintColor="#1999e8"
+            colors={[COLORS.primary]}
+            tintColor={COLORS.primary}
           />
         }
         ListHeaderComponent={children.length > 0 ? renderFilterButtons : null}
@@ -661,13 +652,9 @@ const Reports: React.FC<any> = ({ navigation }) => {
               },
             ]}
           >
-            {/* ✅ FIXED: Gradient colors with proper typing */}
-            <LinearGradient
-              colors={['#F8FAFC', '#FFFFFF'] as const}
-              style={styles.emptyGradient}
-            >
+            <View style={styles.emptyContent}>
               <View style={styles.emptyIllustration}>
-                <Icon name="file-text" size={80} color="#E2E8F0" />
+                <Icon name="file-text" size={48} color={COLORS.gray300} />
               </View>
               <Text style={styles.emptyTitle}>No Reports Available</Text>
               <Text style={styles.emptyText}>
@@ -680,16 +667,15 @@ const Reports: React.FC<any> = ({ navigation }) => {
                 style={styles.retryButton}
                 onPress={loadUserData}
               >
-                {/* ✅ FIXED: Gradient colors with proper typing */}
                 <LinearGradient
-                  colors={['#1999e8', '#1488d0'] as const}
+                  colors={COLORS.primaryGradient}
                   style={styles.retryButtonGradient}
                 >
-                  <Icon name="refresh" size={16} color="#FFFFFF" />
+                  <Icon name="refresh" size={14} color={COLORS.white} />
                   <Text style={styles.retryButtonText}>Refresh</Text>
                 </LinearGradient>
               </TouchableOpacity>
-            </LinearGradient>
+            </View>
           </Animated.View>
         }
       />
@@ -697,381 +683,257 @@ const Reports: React.FC<any> = ({ navigation }) => {
   );
 };
 
-// ... (styles remain exactly the same as in your original code)
 const styles = StyleSheet.create({
   fullScreenContainer: { 
     flex: 1, 
-    backgroundColor: '#1999e8'
+    backgroundColor: COLORS.primary 
   },
-  loadingGradient: {
+  loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingContent: {
     alignItems: 'center',
-    paddingHorizontal: 40,
   },
-  loadingTitle: {
-    fontSize: 18,
+  loadingText: {
+    marginTop: SPACING.md,
+    ...TYPOGRAPHY.base,
+    color: COLORS.white,
     fontWeight: '600',
-    color: '#FFFFFF',
-    marginTop: 20,
-    textAlign: 'center',
-    letterSpacing: 0.3,
   },
   header: {
-    paddingTop: 60,
-    paddingBottom: 30,
-    paddingHorizontal: 20,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  decorativeCircle1: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    top: -50,
-    right: -50,
-  },
-  decorativeCircle2: {
-    position: 'absolute',
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    top: 100,
-    right: 30,
-  },
-  decorativeCircle3: {
-    position: 'absolute',
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    bottom: 10,
-    left: -30,
+    paddingTop: 50,
+    paddingBottom: SPACING.xl,
+    paddingHorizontal: SPACING.lg,
   },
   headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    zIndex: 1,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#fff',
-    letterSpacing: 0.5,
-    textShadowColor: 'rgba(0, 0, 0, 0.15)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+    ...TYPOGRAPHY['2xl'],
+    fontWeight: '700',
+    color: COLORS.white,
   },
   headerSubtitle: {
-    fontSize: 15,
-    color: 'rgba(255,255,255,0.95)',
-    marginTop: 4,
-    fontWeight: '500',
-    letterSpacing: 0.2,
+    ...TYPOGRAPHY.sm,
+    color: 'rgba(255,255,255,0.9)',
+    marginTop: SPACING.xs,
   },
   filterContainer: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 12,
-    borderRadius: 18,
-    paddingVertical: 18,
-    paddingHorizontal: 18,
-    shadowColor: '#1999e8',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: COLORS.white,
+    marginHorizontal: SPACING.lg,
+    marginTop: SPACING.lg,
+    marginBottom: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg,
+    ...SHADOWS.md,
   },
   filterTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#1E293B',
-    marginBottom: 14,
-    letterSpacing: 0.3,
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
+    color: COLORS.gray800,
+    marginBottom: SPACING.md,
   },
   filterScrollContent: {
-    paddingRight: 10,
+    paddingRight: SPACING.sm,
   },
   filterButton: {
-    borderRadius: 16,
-    marginRight: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    borderRadius: BORDER_RADIUS.lg,
+    marginRight: SPACING.sm,
+    backgroundColor: COLORS.gray50,
+    borderWidth: 1,
+    borderColor: COLORS.gray200,
   },
-  filterButtonGradient: {
+  filterButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(25, 153, 232, 0.1)',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: BORDER_RADIUS.lg,
   },
   filterButtonActive: {
-    shadowColor: '#1999e8',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
   },
   filterButtonText: {
-    fontSize: 14,
+    ...TYPOGRAPHY.sm,
     fontWeight: '600',
-    color: '#1999e8',
-    marginLeft: 6,
+    color: COLORS.primary,
+    marginLeft: SPACING.xs,
   },
   filterButtonTextActive: {
-    color: '#FFFFFF',
+    color: COLORS.white,
   },
   listContent: {
-    paddingBottom: 40,
+    paddingBottom: SPACING.xl,
     flexGrow: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: COLORS.background,
   },
   reportCard: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 20,
-    shadowColor: '#1999e8',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 6,
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.white,
+    ...SHADOWS.md,
   },
-  cardGradient: {
-    borderRadius: 20,
-    padding: 20,
-    overflow: 'hidden',
+  cardContent: {
+    padding: SPACING.lg,
   },
-  studentSection: {
+  headerSection: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(148, 163, 184, 0.15)',
-  },
-  avatarGradient: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: SPACING.lg,
   },
   studentInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  avatarContainer: {
+    marginRight: SPACING.md,
+  },
+  avatarGradient: {
+    width: 44,
+    height: 44,
+    borderRadius: BORDER_RADIUS.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  studentTextContainer: {
     flex: 1,
   },
   studentName: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#1E293B',
-    marginBottom: 3,
-    letterSpacing: 0.3,
+    ...TYPOGRAPHY.lg,
+    fontWeight: '700',
+    color: COLORS.gray900,
+    marginBottom: 2,
   },
   gradeLevel: {
-    fontSize: 14,
-    color: '#64748B',
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  reportTypeSection: {
-    marginBottom: 18,
-    alignItems: 'flex-start',
+    ...TYPOGRAPHY.sm,
+    color: COLORS.gray600,
+    fontWeight: '500',
   },
   reportTypeBadge: {
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+  },
+  typeBadgeGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 20,
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.md,
+    gap: SPACING.xs,
   },
   reportTypeText: {
-    fontSize: 13,
+    ...TYPOGRAPHY.xs,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: COLORS.white,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
-  detailsGrid: {
+  detailsSection: {
+    marginBottom: SPACING.lg,
+  },
+  detailRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 18,
+    gap: SPACING.md,
   },
-  detailBox: {
+  detailItem: {
     flex: 1,
-    backgroundColor: 'rgba(248, 250, 252, 0.8)',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.12)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.gray50,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    gap: SPACING.sm,
   },
-  detailIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  detailIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: BORDER_RADIUS.sm,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
   },
-  detailTitle: {
-    fontSize: 11,
-    color: '#64748B',
+  detailText: {
+    flex: 1,
+  },
+  detailLabel: {
+    ...TYPOGRAPHY.xs,
+    color: COLORS.gray600,
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  detailValue: {
+    ...TYPOGRAPHY.sm,
+    color: COLORS.gray800,
     fontWeight: '600',
-    marginBottom: 4,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  detailContent: {
-    fontSize: 13,
-    color: '#1E293B',
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  actionContainer: {
-    marginTop: 2,
   },
   downloadButton: {
-    borderRadius: 16,
-    shadowColor: '#1999e8',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 8,
+    borderRadius: BORDER_RADIUS.lg,
     overflow: 'hidden',
   },
   downloadButtonGradient: {
-    flexDirection: 'row',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    gap: 10,
-  },
-  downloadIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  downloadTextContainer: {
-    flex: 1,
-  },
-  downloadButtonTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
-  },
-  downloadButtonSubtitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.85)',
-    letterSpacing: 0.2,
-    marginTop: 1,
   },
   buttonContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    gap: SPACING.sm,
   },
-  tipContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    gap: 8,
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.2)',
-  },
-  helpText: {
-    fontSize: 12,
-    color: '#92400E',
-    fontWeight: '500',
-    fontStyle: 'italic',
+  downloadButtonText: {
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
+    color: COLORS.white,
   },
   emptyContainer: {
-    marginTop: 40,
-    marginHorizontal: 16,
-    borderRadius: 24,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    marginTop: SPACING.xl,
+    marginHorizontal: SPACING.lg,
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.white,
+    ...SHADOWS.sm,
   },
-  emptyGradient: {
-    paddingVertical: 60,
-    paddingHorizontal: 40,
+  emptyContent: {
+    padding: SPACING.xl,
     alignItems: 'center',
   },
   emptyIllustration: {
-    marginBottom: 30,
+    marginBottom: SPACING.lg,
   },
   emptyTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#64748B',
-    marginBottom: 12,
+    ...TYPOGRAPHY.lg,
+    fontWeight: '600',
+    color: COLORS.gray600,
+    marginBottom: SPACING.md,
     textAlign: 'center',
   },
   emptyText: {
-    fontSize: 16,
-    color: '#94A3B8',
+    ...TYPOGRAPHY.sm,
+    color: COLORS.gray500,
     textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 30,
+    lineHeight: 20,
+    marginBottom: SPACING.xl,
   },
   retryButton: {
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
+    borderRadius: BORDER_RADIUS.lg,
+    overflow: 'hidden',
   },
   retryButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 16,
-    gap: 8,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.lg,
+    gap: SPACING.sm,
   },
   retryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
+    ...TYPOGRAPHY.sm,
+    color: COLORS.white,
     fontWeight: '600',
   },
 });

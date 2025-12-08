@@ -41,5 +41,4 @@ app-example
 
 # generated native folders
 /ios
-/android
 serviceAccountKey.json

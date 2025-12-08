@@ -20,6 +20,105 @@ import {
 } from 'react-native';
 import { auth, database } from '../../firebaseConfig';
 
+// Design System Constants
+const COLORS = {
+  primary: '#1999e8',
+  primaryDark: '#1488d0',
+  primaryLight: '#2da8f0',
+  primaryGradient: ['#1999e8', '#1488d0'] as const,
+  
+  success: '#10b981',
+  successLight: '#d1fae5',
+  successDark: '#059669',
+  warning: '#f59e0b',
+  warningLight: '#fef3c7',
+  warningDark: '#d97706',
+  error: '#ef4444',
+  errorLight: '#fee2e2',
+  errorDark: '#dc2626',
+  info: '#06b6d4',
+  infoLight: '#cffafe',
+  infoDark: '#0891b2',
+  
+  white: '#ffffff',
+  gray50: '#f9fafb',
+  gray100: '#f3f4f6',
+  gray200: '#e5e7eb',
+  gray300: '#d1d5db',
+  gray400: '#9ca3af',
+  gray500: '#6b7280',
+  gray600: '#4b5563',
+  gray700: '#374151',
+  gray800: '#1f2937',
+  gray900: '#111827',
+  
+  background: '#f8fafc',
+  card: '#ffffff',
+  cardDark: '#f8fafc',
+};
+
+const SPACING = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+};
+
+const TYPOGRAPHY = {
+  xs: { fontSize: 10, lineHeight: 14, fontFamily: 'System' },
+  sm: { fontSize: 12, lineHeight: 16, fontFamily: 'System' },
+  base: { fontSize: 14, lineHeight: 20, fontFamily: 'System' },
+  lg: { fontSize: 16, lineHeight: 22, fontFamily: 'System' },
+  xl: { fontSize: 18, lineHeight: 24, fontFamily: 'System' },
+  '2xl': { fontSize: 20, lineHeight: 26, fontFamily: 'System' },
+  '3xl': { fontSize: 24, lineHeight: 30, fontFamily: 'System' },
+};
+
+const BORDER_RADIUS = {
+  sm: 6,
+  md: 10,
+  lg: 14,
+  xl: 18,
+  '2xl': 22,
+  full: 999,
+};
+
+const SHADOWS = {
+  sm: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  md: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  lg: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+};
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SWIPE_THRESHOLD = -80;
+const SWIPE_OUT_DURATION = 200;
+
+const DELETED_NOTIFICATIONS_KEY = 'deleted_notifications';
+const DELETED_ACTIVITIES_KEY = 'deleted_activities';
+const DISPLAY_TIMES_KEY = 'notification_display_times';
+const NEW_NOTIFICATIONS_KEY = 'new_notifications';
+const BADGE_COUNT_KEY = 'notification_badge_count';
+
 interface ParentNotification {
   id: string;
   type: string;
@@ -53,24 +152,12 @@ interface Activity {
   id: string;
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SWIPE_THRESHOLD = -80;
-const SWIPE_OUT_DURATION = 200;
-
-const DELETED_NOTIFICATIONS_KEY = 'deleted_notifications';
-const DELETED_ACTIVITIES_KEY = 'deleted_activities';
-const DISPLAY_TIMES_KEY = 'notification_display_times';
-const NEW_NOTIFICATIONS_KEY = 'new_notifications';
-const BADGE_COUNT_KEY = 'notification_badge_count';
-
 const NotificationScreen = () => {
   const [notifications, setNotifications] = useState<ParentNotification[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [student, setStudent] = useState<Student | null>(null);
   const [loading, setLoading] = useState(false);
-  const notificationSetupRef = useRef(false);
-  const [isScreenFocused, setIsScreenFocused] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   
   const [deletedNotifications, setDeletedNotifications] = useState<Set<string>>(new Set());
@@ -78,16 +165,15 @@ const NotificationScreen = () => {
   const [displayTimes, setDisplayTimes] = useState<Record<string, string>>({});
   const [newNotifications, setNewNotifications] = useState<Set<string>>(new Set());
 
+  const notificationSetupRef = useRef(false);
   const lastRefreshTimeRef = useRef<number>(0);
   const isRefreshingRef = useRef(false);
-  const focusCountRef = useRef(0);
   const dataLoadedRef = useRef(false);
 
-  // Badge count synchronization functions
+  // Badge count synchronization
   const updateTabBadgeCount = async (count: number) => {
     try {
       await AsyncStorage.setItem(BADGE_COUNT_KEY, count.toString());
-      console.log('📱 Tab badge count updated:', count);
     } catch (error) {
       console.error('Error updating tab badge count:', error);
     }
@@ -116,18 +202,10 @@ const NotificationScreen = () => {
         AsyncStorage.getItem(NEW_NOTIFICATIONS_KEY)
       ]);
 
-      if (deletedNotifs) {
-        setDeletedNotifications(new Set(JSON.parse(deletedNotifs)));
-      }
-      if (deletedActs) {
-        setDeletedActivities(new Set(JSON.parse(deletedActs)));
-      }
-      if (savedDisplayTimes) {
-        setDisplayTimes(JSON.parse(savedDisplayTimes));
-      }
-      if (savedNewNotifications) {
-        setNewNotifications(new Set(JSON.parse(savedNewNotifications)));
-      }
+      if (deletedNotifs) setDeletedNotifications(new Set(JSON.parse(deletedNotifs)));
+      if (deletedActs) setDeletedActivities(new Set(JSON.parse(deletedActs)));
+      if (savedDisplayTimes) setDisplayTimes(JSON.parse(savedDisplayTimes));
+      if (savedNewNotifications) setNewNotifications(new Set(JSON.parse(savedNewNotifications)));
     } catch (error) {
       console.error('Error loading persisted data:', error);
     }
@@ -162,16 +240,7 @@ const NotificationScreen = () => {
 
   const markNotificationsAsSeen = async (notificationIds: string[]) => {
     const updatedNewNotifications = new Set(newNotifications);
-    notificationIds.forEach(id => {
-      updatedNewNotifications.delete(id);
-    });
-    setNewNotifications(updatedNewNotifications);
-    await saveNewNotifications(updatedNewNotifications);
-  };
-
-  const addToNewNotifications = async (notificationId: string) => {
-    const updatedNewNotifications = new Set(newNotifications);
-    updatedNewNotifications.add(notificationId);
+    notificationIds.forEach(id => updatedNewNotifications.delete(id));
     setNewNotifications(updatedNewNotifications);
     await saveNewNotifications(updatedNewNotifications);
   };
@@ -182,24 +251,18 @@ const NotificationScreen = () => {
     }
 
     const now = Date.now();
-    const notificationTime = timestamp;
-    const diffInMinutes = Math.floor((now - notificationTime) / (1000 * 60));
+    const diffInMinutes = Math.floor((now - timestamp) / (1000 * 60));
     const diffInHours = Math.floor(diffInMinutes / 60);
     const diffInDays = Math.floor(diffInHours / 24);
     
     let displayTime: string;
     
-    if (diffInMinutes < 1) {
-      displayTime = 'Just now';
-    } else if (diffInMinutes < 60) {
-      displayTime = `${diffInMinutes}m ago`;
-    } else if (diffInHours < 24) {
-      displayTime = `${diffInHours}h ago`;
-    } else if (diffInDays === 1) {
-      displayTime = 'Yesterday';
-    } else if (diffInDays < 7) {
-      displayTime = `${diffInDays}d ago`;
-    } else {
+    if (diffInMinutes < 1) displayTime = 'Just now';
+    else if (diffInMinutes < 60) displayTime = `${diffInMinutes}m ago`;
+    else if (diffInHours < 24) displayTime = `${diffInHours}h ago`;
+    else if (diffInDays === 1) displayTime = 'Yesterday';
+    else if (diffInDays < 7) displayTime = `${diffInDays}d ago`;
+    else {
       const date = new Date(timestamp);
       displayTime = date.toLocaleDateString('en-US', {
         month: 'short',
@@ -267,28 +330,9 @@ const NotificationScreen = () => {
     }
     
     if (notification.type === 'reminder') {
-      if (notification.action === 'daily_reminder_1230_2100') {
-        return {
-          title: 'Daily Pickup Reminder',
-          message: `Don't forget to scan your RFID when picking up ${studentName}`
-        };
-      } else if (notification.action === 'pickup_reminder_alert') {
-        return {
-          title: 'Forgot to Scan RFID?',
-          message: `Have you picked up ${studentName} but forgot to scan your RFID card?`
-        };
-      } else {
-        return {
-          title: 'Pickup Reminder',
-          message: notification.message || `Don't forget to scan RFID when picking up ${studentName}`
-        };
-      }
-    }
-
-    if (notification.type === 'hourly_reminder_1230_2100') {
       return {
         title: 'Pickup Reminder',
-        message: `Reminder: Please scan your RFID when picking up ${studentName}`
+        message: notification.message || `Don't forget to scan RFID when picking up ${studentName}`
       };
     }
 
@@ -325,11 +369,6 @@ const NotificationScreen = () => {
           title: 'Pickup Completed',
           message: notification.message
         };
-      } else if (notification.message.includes('Reminder sent') || notification.message.includes('reminder')) {
-        return {
-          title: 'Pickup Reminder',
-          message: notification.message
-        };
       }
     }
     
@@ -340,12 +379,9 @@ const NotificationScreen = () => {
   };
 
   const loadStudentData = useCallback(async (userEmail: string | null) => {
-    if (!userEmail) {
-      console.log('No user email provided, skipping student lookup');
-      return null;
-    }
+    if (!userEmail) return null;
+    
     try {
-      console.log('Loading student data for:', userEmail);
       const studentsRef = ref(database, 'students');
       const snapshot = await get(studentsRef);
       
@@ -372,20 +408,11 @@ const NotificationScreen = () => {
                 lastName: studentObj.lastName,
                 rfid: studentObj.rfid || studentId
               };
-              console.log('Found student:', foundStudent.firstName);
               break;
             }
           }
         }
-
-        if (foundStudent) {
-          setStudent(foundStudent);
-          return foundStudent;
-        } else {
-          console.log('No student found linked to email');
-        }
-      } else {
-        console.log('No students found in database');
+        return foundStudent;
       }
       return null;
     } catch (error) {
@@ -396,7 +423,6 @@ const NotificationScreen = () => {
 
   const loadUserActivities = useCallback(async (userId: string, student: Student) => {
     try {
-      console.log('Loading user activities for:', userId);
       const activitiesRef = ref(database, `users/${userId}/recentActivities`);
       const activitiesSnapshot = await get(activitiesRef);
       
@@ -406,15 +432,10 @@ const NotificationScreen = () => {
         const activitiesData = activitiesSnapshot.val();
         const activities = activitiesData.activities || [];
         
-        console.log('Found activities:', activities.length);
-        
         activities.forEach((activity: Activity) => {
           const activityId = `activity-${activity.id || activity.timestamp}`;
           
-          if (deletedActivities.has(activityId)) {
-            console.log('Skipping deleted activity:', activityId);
-            return;
-          }
+          if (deletedActivities.has(activityId)) return;
           
           const content = createNotificationContent(activity);
           
@@ -448,7 +469,6 @@ const NotificationScreen = () => {
 
   const loadParentNotifications = useCallback(async (studentRfid: string) => {
     try {
-      console.log('Loading parent notifications for RFID:', studentRfid);
       const notificationsRef = ref(database, `parentNotifications/${studentRfid}`);
       const snapshot = await get(notificationsRef);
       
@@ -459,19 +479,16 @@ const NotificationScreen = () => {
         const notificationsData = snapshot.val();
         
         Object.keys(notificationsData).forEach(key => {
-          if (deletedNotifications.has(key)) {
-            console.log('Skipping deleted notification:', key);
-            return;
-          }
+          if (deletedNotifications.has(key)) return;
+          
           const notification = notificationsData[key];
           if (notification.type === 'attendance_scan') {
             const date = notification.time ? notification.time.split(' ')[0] : '';
             const scanKey = `${notification.studentRfid || ''}-${date}-${notification.action}`;
-            if (attendanceScanKeys.has(scanKey)) {
-              return;
-            }
+            if (attendanceScanKeys.has(scanKey)) return;
             attendanceScanKeys.add(scanKey);
           }
+          
           const content = createNotificationContent(notification);
           if (content.title && content.message && notification.type !== 'teacher_message') {
             notificationsArray.push({
@@ -485,10 +502,6 @@ const NotificationScreen = () => {
             });
           }
         });
-        
-        console.log('Loaded parent notifications:', notificationsArray.length);
-      } else {
-        console.log('No parent notifications found');
       }
       
       return notificationsArray;
@@ -505,11 +518,8 @@ const NotificationScreen = () => {
     const newIds = [...currentIds].filter(id => !previousIds.has(id));
     
     if (newIds.length > 0) {
-      console.log('New notifications detected:', newIds);
       const updatedNewNotifications = new Set(newNotifications);
-      newIds.forEach(id => {
-        updatedNewNotifications.add(id);
-      });
+      newIds.forEach(id => updatedNewNotifications.add(id));
       setNewNotifications(updatedNewNotifications);
       saveNewNotifications(updatedNewNotifications);
     }
@@ -545,11 +555,7 @@ const NotificationScreen = () => {
         })));
         
         setUnreadCount(0);
-        
-        // Sync badge count
         await updateTabBadgeCount(0);
-        
-        console.log('Marked all notifications as read on screen open');
       }
     } catch (error) {
       console.error('Error marking all as read on open:', error);
@@ -557,18 +563,11 @@ const NotificationScreen = () => {
   }, [student, notifications, unreadCount, deletedNotifications]);
 
   const setupNotificationListener = useCallback((student: Student) => {
-    if (!student.rfid) {
-      console.error('No RFID found for student');
-      return () => {};
-    }
+    if (!student.rfid) return () => {};
 
-    console.log('Setting up real-time notification listener for RFID:', student.rfid);
-    
     const notificationsRef = ref(database, `parentNotifications/${student.rfid}`);
     
     const notificationListener = onValue(notificationsRef, async (snapshot) => {
-      console.log('Real-time notification update received');
-      
       try {
         const currentNotifications = [...notifications];
         
@@ -588,23 +587,17 @@ const NotificationScreen = () => {
           if (!seenKeys.has(uniqueKey)) {
             seenKeys.add(uniqueKey);
             deduplicated.push(notification);
-          } else {
-            console.log('Skipping duplicate notification:', uniqueKey);
           }
         }
         
         deduplicated.sort((a, b) => b.timestamp - a.timestamp);
         
-        console.log('Total notifications after deduplication:', deduplicated.length);
-        
         detectNewNotifications(deduplicated, currentNotifications);
         
-        setNotifications(deduplicated);
+        setNotifications(deduplicateNotifications(deduplicated));
         
         const newUnreadCount = calculateUnreadCount(deduplicated);
         setUnreadCount(newUnreadCount);
-        
-        // Sync badge count whenever notifications update
         await updateTabBadgeCount(newUnreadCount);
         
       } catch (error) {
@@ -639,8 +632,6 @@ const NotificationScreen = () => {
       
       const newUnreadCount = Math.max(0, unreadCount - 1);
       setUnreadCount(newUnreadCount);
-      
-      // Sync badge count
       await updateTabBadgeCount(newUnreadCount);
       
     } catch (error) {
@@ -654,10 +645,7 @@ const NotificationScreen = () => {
     try {
       const notificationToDelete = notifications.find(notif => notif.id === notificationId);
       
-      if (!notificationToDelete) {
-        console.log('Notification not found:', notificationId);
-        return;
-      }
+      if (!notificationToDelete) return;
 
       if (notificationToDelete.isActivity) {
         setDeletedActivities(prev => {
@@ -665,7 +653,6 @@ const NotificationScreen = () => {
           newSet.add(notificationId);
           return newSet;
         });
-        console.log('Activity log permanently deleted:', notificationId);
       } else {
         await remove(ref(database, `parentNotifications/${student.rfid}/${notificationId}`));
         
@@ -674,7 +661,6 @@ const NotificationScreen = () => {
           newSet.add(notificationId);
           return newSet;
         });
-        console.log('Notification permanently deleted from Firebase:', notificationId);
       }
       
       if (newNotifications.has(notificationId)) {
@@ -700,17 +686,10 @@ const NotificationScreen = () => {
   const confirmDeleteNotification = (notificationId: string, notificationTitle: string) => {
     Alert.alert(
       'Delete Notification',
-      `Are you sure you want to delete "${notificationTitle}"? This action cannot be undone.`,
+      `Are you sure you want to delete "${notificationTitle}"?`,
       [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => deleteNotification(notificationId),
-        },
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => deleteNotification(notificationId) },
       ]
     );
   };
@@ -743,8 +722,6 @@ const NotificationScreen = () => {
         }
         
         setUnreadCount(0);
-        
-        // Sync badge count
         await updateTabBadgeCount(0);
         
         Alert.alert('Success', 'All notifications marked as read');
@@ -797,33 +774,17 @@ const NotificationScreen = () => {
     );
   };
 
-  const getUnreadCount = () => {
-    return unreadCount;
-  };
-
-  const getNewCount = () => {
-    return calculateNewCount(notifications);
-  };
-
   const loadAllData = useCallback(async (forceRefresh: boolean = false) => {
     if (!user || !student) return;
     
     const now = Date.now();
-    if (!forceRefresh && now - lastRefreshTimeRef.current < 5000) {
-      console.log('Too soon since last refresh, skipping');
-      return;
-    }
-    
-    if (isRefreshingRef.current) {
-      console.log('Already refreshing, skipping');
-      return;
-    }
+    if (!forceRefresh && now - lastRefreshTimeRef.current < 5000) return;
+    if (isRefreshingRef.current) return;
 
     try {
       isRefreshingRef.current = true;
       lastRefreshTimeRef.current = now;
       
-      console.log('Loading all notification data...');
       const [parentNotifications, userActivities] = await Promise.all([
         loadParentNotifications(student.rfid!),
         loadUserActivities(user.uid, student)
@@ -836,19 +797,16 @@ const NotificationScreen = () => {
       
       for (const notification of allNotifications) {
         let uniqueKey;
-        // For pickup reminders, deduplicate and filter by time and scan status
         if (
           notification.type === 'reminder' ||
           notification.type === 'pickup_reminder_alert' ||
           notification.type === 'hourly_reminder_1230_2100'
         ) {
-          // Only show reminders between 12:30 PM and 9:00 PM
           const notifDate = new Date(notification.timestamp);
           const hour = notifDate.getHours();
           const minute = notifDate.getMinutes();
           const isAfter1230 = hour > 12 || (hour === 12 && minute >= 30);
           const isBefore21 = hour < 21;
-          // Check if scan has been recorded for pickup today (simple check: status !== 'Pending' or action !== 'pickup')
           let alreadyScanned = false;
           if (notification.status && notification.status.toLowerCase().includes('picked up')) {
             alreadyScanned = true;
@@ -858,32 +816,23 @@ const NotificationScreen = () => {
             if (!seenKeys.has(uniqueKey)) {
               seenKeys.add(uniqueKey);
               deduplicated.push(notification);
-            } else {
-              console.log('Skipping duplicate notification:', uniqueKey);
             }
-          } else {
-            console.log('Skipping pickup reminder outside allowed time or already scanned:', notification);
           }
         } else {
           uniqueKey = `${notification.timestamp}-${notification.type}-${notification.action}-${notification.studentName}`;
           if (!seenKeys.has(uniqueKey)) {
             seenKeys.add(uniqueKey);
             deduplicated.push(notification);
-          } else {
-            console.log('Skipping duplicate notification:', uniqueKey);
           }
         }
       }
       
       deduplicated.sort((a, b) => b.timestamp - a.timestamp);
       
-      console.log('Total notifications after deduplication:', deduplicated.length);
-      setNotifications(deduplicated);
+      setNotifications(deduplicateNotifications(deduplicated));
       
       const newUnreadCount = calculateUnreadCount(deduplicated);
       setUnreadCount(newUnreadCount);
-      
-      // Sync badge count on initial load
       await updateTabBadgeCount(newUnreadCount);
       
       dataLoadedRef.current = true;
@@ -897,6 +846,19 @@ const NotificationScreen = () => {
     }
   }, [user, student, loadParentNotifications, loadUserActivities, calculateUnreadCount]);
 
+  const deduplicateNotifications = (notifications: ParentNotification[]) => {
+    const seenKeys = new Set<string>();
+    const deduped: ParentNotification[] = [];
+    for (const notif of notifications) {
+      const key = `${notif.type}-${notif.action}-${notif.studentName}-${notif.timestamp}`;
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        deduped.push(notif);
+      }
+    }
+    return deduped;
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -904,12 +866,7 @@ const NotificationScreen = () => {
         
         dataLoadedRef.current = false;
         
-        if (notificationSetupRef.current) {
-          console.log('Already setup, skipping re-initialization');
-          return;
-        }
-        
-        console.log('Setting up comprehensive notifications for user:', user.email);
+        if (notificationSetupRef.current) return;
         
         const studentData = await loadStudentData(user.email);
         if (studentData) {
@@ -924,11 +881,9 @@ const NotificationScreen = () => {
           return cleanup;
         } else {
           setLoading(false);
-          console.log('No student data found');
         }
       } else {
         setLoading(false);
-        console.log('No user found');
       }
     });
 
@@ -939,31 +894,18 @@ const NotificationScreen = () => {
 
   useFocusEffect(
     useCallback(() => {
-      console.log('Notification screen focused');
-      setIsScreenFocused(true);
-
       if (student && !dataLoadedRef.current) {
-        console.log('Initial focus-based refresh triggered');
         markAllAsReadOnOpen();
         loadAllData(true);
-      } else if (student) {
-        console.log('Data already loaded, skipping refresh');
       }
 
-      return () => {
-        console.log('Notification screen unfocused');
-        setIsScreenFocused(false);
-      };
+      return () => {};
     }, [student, markAllAsReadOnOpen, loadAllData])
   );
 
   const onRefresh = useCallback(async () => {
-    if (isRefreshingRef.current) {
-      console.log('Already refreshing, skipping');
-      return;
-    }
+    if (isRefreshingRef.current) return;
     
-    console.log('Manual refresh triggered');
     setRefreshing(true);
     await loadAllData(true);
   }, [loadAllData]);
@@ -981,7 +923,7 @@ const NotificationScreen = () => {
   };
 
   const NewNotificationBadge = () => {
-    const newCount = getNewCount();
+    const newCount = calculateNewCount(notifications);
     if (newCount <= 0) return null;
     
     return (
@@ -995,7 +937,6 @@ const NotificationScreen = () => {
 
   const SwipeableNotificationItem = ({ item }: { item: ParentNotification }) => {
     const translateX = useRef(new Animated.Value(0)).current;
-    const rowRef = useRef<any>(null);
 
     const panResponder = useRef(
       PanResponder.create({
@@ -1046,21 +987,21 @@ const NotificationScreen = () => {
 
     const getIconColor = () => {
       if (item.type === 'attendance_scan' || item.type === 'attendance_update') {
-        return item.status === 'Late' || item.message.includes('LATE') ? '#f59e0b' : '#10b981';
+        return item.status === 'Late' || item.message.includes('LATE') ? COLORS.warning : COLORS.success;
       }
       if (item.type === 'pickup_update' || item.type === 'manual_pickup_confirmation') {
         if (item.message.includes('PENDING') || item.status === 'Pending Verification') {
-          return '#f59e0b';
+          return COLORS.warning;
         }
         return '#8b5cf6';
       }
       if (item.type === 'reminder' || item.type === 'hourly_reminder_1230_2100') {
-        return '#f59e0b';
+        return COLORS.warning;
       }
       if (item.type === 'admin_notification') {
-        return '#ef4444';
+        return COLORS.error;
       }
-      return '#6b7280';
+      return COLORS.gray500;
     };
 
     const swipeDeleteBackground = () => {
@@ -1072,7 +1013,7 @@ const NotificationScreen = () => {
 
       return (
         <Animated.View style={[styles.deleteBackground, { opacity }]}>
-          <Ionicons name="trash-outline" size={24} color="#fff" />
+          <Ionicons name="trash-outline" size={20} color={COLORS.white} />
           <Text style={styles.deleteText}>Delete</Text>
         </Animated.View>
       );
@@ -1082,10 +1023,7 @@ const NotificationScreen = () => {
       <View style={styles.swipeableContainer}>
         {swipeDeleteBackground()}
         <Animated.View
-          ref={rowRef}
-          style={{
-            transform: [{ translateX }],
-          }}
+          style={{ transform: [{ translateX }] }}
           {...panResponder.panHandlers}
         >
           <TouchableOpacity 
@@ -1109,15 +1047,12 @@ const NotificationScreen = () => {
               confirmDeleteNotification(item.id, item.title || 'this notification');
             }}
           >
-            <LinearGradient
-              colors={item.isNew ? ['#EFF6FF', '#DBEAFE'] : ['#FFFFFF', '#F8FAFF']}
-              style={styles.cardGradient}
-            >
+            <View style={styles.cardContent}>
               <View style={styles.notificationHeader}>
                 <View style={styles.notificationIconContainer}>
                   <Ionicons 
                     name={getIconName()} 
-                    size={20} 
+                    size={18} 
                     color={getIconColor()} 
                   />
                   {item.isNew && (
@@ -1144,14 +1079,8 @@ const NotificationScreen = () => {
                     )}
                   </View>
                 </View>
-                <Ionicons 
-                  name="chevron-back" 
-                  size={16} 
-                  color="#d1d5db" 
-                  style={styles.swipeHintIcon}
-                />
               </View>
-            </LinearGradient>
+            </View>
           </TouchableOpacity>
         </Animated.View>
       </View>
@@ -1160,12 +1089,9 @@ const NotificationScreen = () => {
 
   const EnhancedEmptyState = () => (
     <View style={styles.emptyContainer}>
-      <LinearGradient
-        colors={['#f8fafc', '#e2e8f0']}
-        style={styles.emptyGradient}
-      >
+      <View style={styles.emptyContent}>
         <View style={styles.emptyIconContainer}>
-          <Ionicons name="notifications-off-outline" size={80} color="#cbd5e1" />
+          <Ionicons name="notifications-off-outline" size={48} color={COLORS.gray300} />
         </View>
         <Text style={styles.emptyTitle}>No notifications yet</Text>
         <Text style={styles.emptyText}>
@@ -1173,34 +1099,22 @@ const NotificationScreen = () => {
         </Text>
         <View style={styles.featureList}>
           <View style={styles.featureItem}>
-            <View style={[styles.featureIcon, { backgroundColor: '#10b98120' }]}>
-              <Ionicons name="school-outline" size={16} color="#10b981" />
+            <View style={[styles.featureIcon, { backgroundColor: `${COLORS.success}20` }]}>
+              <Ionicons name="school-outline" size={14} color={COLORS.success} />
             </View>
             <Text style={styles.featureText}>School arrival & departure updates</Text>
           </View>
           <View style={styles.featureItem}>
             <View style={[styles.featureIcon, { backgroundColor: '#8b5cf620' }]}>
-              <Ionicons name="car-outline" size={16} color="#8b5cf6" />
+              <Ionicons name="car-outline" size={14} color="#8b5cf6" />
             </View>
             <Text style={styles.featureText}>Pickup notifications & reminders</Text>
           </View>
           <View style={styles.featureItem}>
-            <View style={[styles.featureIcon, { backgroundColor: '#f59e0b20' }]}>
-              <Ionicons name="time-outline" size={16} color="#f59e0b" />
+            <View style={[styles.featureIcon, { backgroundColor: `${COLORS.warning}20` }]}>
+              <Ionicons name="time-outline" size={14} color={COLORS.warning} />
             </View>
             <Text style={styles.featureText}>Late arrival alerts</Text>
-          </View>
-          <View style={styles.featureItem}>
-            <View style={[styles.featureIcon, { backgroundColor: '#06b6d420' }]}>
-              <Ionicons name="checkmark-done-outline" size={16} color="#06b6d4" />
-            </View>
-            <Text style={styles.featureText}>Manual pickup confirmations</Text>
-          </View>
-          <View style={styles.featureItem}>
-            <View style={[styles.featureIcon, { backgroundColor: '#ef444420' }]}>
-              <Ionicons name="trash-outline" size={16} color="#ef4444" />
-            </View>
-            <Text style={styles.featureText}>Swipe left to permanently delete</Text>
           </View>
         </View>
         <View style={styles.emptyFooter}>
@@ -1208,7 +1122,7 @@ const NotificationScreen = () => {
             All school updates appear here in one place
           </Text>
         </View>
-      </LinearGradient>
+      </View>
     </View>
   );
 
@@ -1216,7 +1130,7 @@ const NotificationScreen = () => {
     return (
       <View style={styles.container}>
         <StatusBar style="light" />
-        <LinearGradient colors={['#1999e8', '#1488d0']} style={styles.header}>
+        <LinearGradient colors={COLORS.primaryGradient} style={styles.header}>
           <View style={styles.headerContent}>
             <View>
               <Text style={styles.headerTitle}>Notifications</Text>
@@ -1228,7 +1142,7 @@ const NotificationScreen = () => {
         </LinearGradient>
         <View style={styles.loadingContainer}>
           <View style={styles.loadingSpinner}>
-            <Ionicons name="refresh" size={32} color="#1999e8" />
+            <Ionicons name="refresh" size={24} color={COLORS.primary} />
           </View>
           <Text style={styles.loadingText}>Loading your notifications...</Text>
         </View>
@@ -1240,7 +1154,7 @@ const NotificationScreen = () => {
     <View style={styles.container}>
       <StatusBar style="light" />
       
-      <LinearGradient colors={['#1999e8', '#1488d0']} style={styles.header}>
+      <LinearGradient colors={COLORS.primaryGradient} style={styles.header}>
         <View style={styles.headerContent}>
           <View style={styles.headerTitleSection}>
             <Text style={styles.headerTitle}>Notifications</Text>
@@ -1258,7 +1172,7 @@ const NotificationScreen = () => {
                     style={styles.markAllButton}
                     onPress={markAllAsRead}
                   >
-                    <Ionicons name="checkmark-done" size={20} color="#fff" />
+                    <Ionicons name="checkmark-done" size={18} color={COLORS.white} />
                   </TouchableOpacity>
                 )}
               </>
@@ -1280,8 +1194,8 @@ const NotificationScreen = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            colors={['#1999e8']}
-            tintColor="#1999e8"
+            colors={[COLORS.primary]}
+            tintColor={COLORS.primary}
           />
         }
         ListEmptyComponent={<EnhancedEmptyState />}
@@ -1293,17 +1207,12 @@ const NotificationScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: COLORS.background,
   },
   header: {
-    paddingTop: 60,
-    paddingBottom: 25,
-    paddingHorizontal: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    paddingTop: 50,
+    paddingBottom: SPACING.xl,
+    paddingHorizontal: SPACING.lg,
   },
   headerContent: {
     flexDirection: 'row',
@@ -1314,79 +1223,71 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
+    ...TYPOGRAPHY['2xl'],
+    fontWeight: '700',
+    color: COLORS.white,
+    marginBottom: SPACING.xs,
   },
   headerSubtitle: {
-    fontSize: 14,
+    ...TYPOGRAPHY.sm,
     color: 'rgba(255,255,255,0.9)',
     fontWeight: '500',
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: SPACING.sm,
   },
   markAllButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: BORDER_RADIUS.lg,
     backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   badge: {
-    backgroundColor: '#ef4444',
-    borderRadius: 12,
-    minWidth: 24,
-    height: 24,
+    backgroundColor: COLORS.error,
+    borderRadius: BORDER_RADIUS.sm,
+    minWidth: 20,
+    height: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: SPACING.xs,
   },
   badgeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.xs,
+    color: COLORS.white,
+    fontWeight: '700',
   },
   newBadge: {
-    backgroundColor: '#dc2626',
-    borderRadius: 12,
-    minWidth: 24,
-    height: 24,
+    backgroundColor: COLORS.errorDark,
+    borderRadius: BORDER_RADIUS.sm,
+    minWidth: 20,
+    height: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 6,
-    shadowColor: '#dc2626',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+    paddingHorizontal: SPACING.xs,
+    ...SHADOWS.sm,
   },
   newBadgeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.xs,
+    color: COLORS.white,
+    fontWeight: '700',
   },
   listContent: {
-    padding: 16,
-    paddingBottom: 40,
+    padding: SPACING.lg,
+    paddingBottom: SPACING.xl,
   },
   emptyListContent: {
     flexGrow: 1,
   },
   swipeableContainer: {
     position: 'relative',
-    marginBottom: 12,
-    borderRadius: 16,
+    marginBottom: SPACING.sm,
+    borderRadius: BORDER_RADIUS.lg,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    ...SHADOWS.md,
   },
   deleteBackground: {
     position: 'absolute',
@@ -1394,72 +1295,61 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#ef4444',
+    backgroundColor: COLORS.error,
     justifyContent: 'center',
     alignItems: 'flex-end',
-    paddingRight: 20,
+    paddingRight: SPACING.lg,
     flexDirection: 'row',
-    gap: 8,
+    gap: SPACING.sm,
   },
   deleteText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    color: COLORS.white,
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
   },
   notificationCard: {
-    borderRadius: 16,
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.white,
     overflow: 'hidden',
   },
   unreadNotification: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#1999e8',
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.primary,
   },
   newNotification: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#dc2626',
-    shadowColor: '#dc2626',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.error,
+    ...SHADOWS.lg,
   },
-  cardGradient: {
-    padding: 16,
+  cardContent: {
+    padding: SPACING.lg,
   },
   notificationHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
   notificationIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#f1f5f9',
+    width: 40,
+    height: 40,
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.gray100,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: SPACING.md,
     position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    ...SHADOWS.sm,
   },
   newDot: {
     position: 'absolute',
     top: -2,
     right: -2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#dc2626',
+    width: 12,
+    height: 12,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.error,
     borderWidth: 2,
-    borderColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
+    borderColor: COLORS.white,
+    ...SHADOWS.sm,
   },
   notificationContent: {
     flex: 1,
@@ -1468,40 +1358,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: SPACING.xs,
   },
   notificationTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1E293B',
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
+    color: COLORS.gray800,
     flex: 1,
   },
   newNotificationTitle: {
-    fontWeight: '900',
-    color: '#1e40af',
+    fontWeight: '700',
+    color: COLORS.primaryDark,
   },
   newIndicator: {
-    backgroundColor: '#dc2626',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginLeft: 8,
-    shadowColor: '#dc2626',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-    elevation: 2,
+    backgroundColor: COLORS.error,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 2,
+    borderRadius: BORDER_RADIUS.sm,
+    marginLeft: SPACING.sm,
+    ...SHADOWS.sm,
   },
   newIndicatorText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.xs,
+    color: COLORS.white,
+    fontWeight: '700',
   },
   notificationMessage: {
-    fontSize: 14,
-    color: '#64748B',
-    marginBottom: 8,
-    lineHeight: 20,
+    ...TYPOGRAPHY.sm,
+    color: COLORS.gray600,
+    marginBottom: SPACING.sm,
+    lineHeight: 18,
   },
   notificationFooter: {
     flexDirection: 'row',
@@ -1509,109 +1395,88 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   notificationTime: {
-    fontSize: 12,
-    color: '#94A3B8',
+    ...TYPOGRAPHY.xs,
+    color: COLORS.gray500,
     fontWeight: '500',
   },
   unreadIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#ef4444',
-    shadowColor: '#ef4444',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  swipeHintIcon: {
-    marginLeft: 8,
-    marginTop: 4,
-    transform: [{ rotate: '180deg' }],
-    opacity: 0.6,
+    width: 8,
+    height: 8,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: COLORS.error,
+    ...SHADOWS.sm,
   },
   emptyContainer: {
     flex: 1,
-    padding: 20,
+    padding: SPACING.lg,
   },
-  emptyGradient: {
+  emptyContent: {
     flex: 1,
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.xl,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: COLORS.white,
+    ...SHADOWS.md,
   },
   emptyIconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#fff',
+    width: 80,
+    height: 80,
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.gray50,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    marginBottom: SPACING.lg,
+    ...SHADOWS.sm,
   },
   emptyTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#374151',
-    marginBottom: 12,
+    ...TYPOGRAPHY.lg,
+    fontWeight: '600',
+    color: COLORS.gray700,
+    marginBottom: SPACING.md,
     textAlign: 'center',
   },
   emptyText: {
-    fontSize: 15,
-    color: '#6b7280',
+    ...TYPOGRAPHY.sm,
+    color: COLORS.gray500,
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 24,
+    lineHeight: 20,
+    marginBottom: SPACING.xl,
   },
   featureList: {
     width: '100%',
-    marginBottom: 24,
+    marginBottom: SPACING.xl,
   },
   featureItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    backgroundColor: COLORS.gray50,
+    borderRadius: BORDER_RADIUS.md,
+    marginBottom: SPACING.xs,
+    ...SHADOWS.sm,
   },
   featureIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: BORDER_RADIUS.sm,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: SPACING.sm,
   },
   featureText: {
-    fontSize: 14,
-    color: '#374151',
+    ...TYPOGRAPHY.sm,
+    color: COLORS.gray700,
     flex: 1,
     fontWeight: '500',
   },
   emptyFooter: {
-    marginTop: 16,
+    marginTop: SPACING.md,
   },
   noteText: {
-    fontSize: 13,
-    color: '#10b981',
+    ...TYPOGRAPHY.xs,
+    color: COLORS.success,
     textAlign: 'center',
     fontStyle: 'italic',
     fontWeight: '500',
@@ -1620,25 +1485,21 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: COLORS.background,
   },
   loadingSpinner: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#fff',
+    width: 50,
+    height: 50,
+    borderRadius: BORDER_RADIUS.lg,
+    backgroundColor: COLORS.white,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    marginBottom: SPACING.md,
+    ...SHADOWS.md,
   },
   loadingText: {
-    fontSize: 16,
-    color: '#6b7280',
+    ...TYPOGRAPHY.base,
+    color: COLORS.gray500,
     fontWeight: '500',
   },
 });
