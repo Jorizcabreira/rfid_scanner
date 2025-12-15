@@ -41,7 +41,7 @@ const LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
 const MAX_REQUESTS_PER_MINUTE = 5;
 
-// OTP Server URL - set to deployed Render URL
+// OTP Server URL
 const OTP_SERVER_URL = 'https://rfid-scanner-1.onrender.com';
 
 // Simple emoji-based icon component
@@ -79,23 +79,6 @@ const ParentLoginScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
-
-  // Safely parse fetch response bodies. If response isn't valid JSON, return
-  // an object with success=false and the raw text in message to avoid parse errors.
-  const parseResponseSafe = useCallback(async (response: Response) => {
-    let text = '';
-    try {
-      text = await response.text();
-    } catch (e) {
-      return { success: false, message: `Unable to read response body: ${String(e)}` };
-    }
-
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      return { success: false, message: text || `Unexpected response (status ${response.status})` };
-    }
-  }, []);
   const [isAccountLocked, setIsAccountLocked] = useState(false);
   const [lockoutTimeRemaining, setLockoutTimeRemaining] = useState(0);
   
@@ -136,6 +119,22 @@ const ParentLoginScreen = () => {
       if (otpTimerRef.current) clearInterval(otpTimerRef.current);
       if (resendTimerRef.current) clearInterval(resendTimerRef.current);
     };
+  }, []);
+
+  // Safely parse fetch response bodies
+  const parseResponseSafe = useCallback(async (response: Response) => {
+    let text = '';
+    try {
+      text = await response.text();
+    } catch (e) {
+      return { success: false, message: `Unable to read response body: ${String(e)}` };
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return { success: false, message: text || `Unexpected response (status ${response.status})` };
+    }
   }, []);
 
   // Security: Rate limiting check
@@ -195,12 +194,115 @@ const ParentLoginScreen = () => {
     return true;
   }, []);
 
+  // Function to log suspicious activity
+  const logSuspiciousActivity = useCallback(async (logData: {
+    parentUid: string;
+    email: string;
+    status: 'suspicious' | 'failed' | 'lockout';
+    reason: string;
+    attempts: number;
+    device?: string;
+  }) => {
+    if (!isMountedRef.current) return;
+
+    try {
+      const suspiciousLogRef = ref(database, "parentSuspiciousLog");
+      const newLogRef = push(suspiciousLogRef);
+      
+      const logEntry = {
+        action: 'Suspicious Parent Login',
+        user: logData.email,
+        device: logData.device || 'Mobile App',
+        timestamp: Date.now(),
+        details: logData.reason,
+        status: 'suspicious',
+        parentUid: logData.parentUid,
+        attempts: logData.attempts,
+        adminAttentionRequired: true,
+        lockoutTriggered: logData.status === 'lockout',
+        type: "parent_suspicious",
+        severity: logData.status === 'lockout' ? 'high' : 'medium'
+      };
+
+      await set(newLogRef, logEntry);
+      console.log(`⚠️ Suspicious activity logged: ${logData.reason}`);
+      
+      // Also log to parentLoginLog for consistency
+      await logLoginAttempt({
+        parentUid: logData.parentUid,
+        email: logData.email,
+        status: 'suspicious',
+        reason: logData.reason,
+        attempts: logData.attempts,
+        device: logData.device
+      });
+      
+      return true;
+    } catch (error: any) {
+      console.error('Error logging suspicious activity:', error);
+      return false;
+    }
+  }, []);
+
+  // Function to log login attempts
+  const logLoginAttempt = useCallback(async (logData: {
+    parentUid: string;
+    email: string;
+    status: 'success' | 'failed' | 'suspicious';
+    reason?: string;
+    attempts?: number;
+    device?: string;
+  }) => {
+    if (!isMountedRef.current) return true;
+
+    try {
+      const auditLogRef = ref(database, "parentLoginLog");
+      const newLogRef = push(auditLogRef);
+      
+      const logEntry = {
+        action: logData.status === 'suspicious' ? 'Suspicious Parent Login' : 'Parent Login',
+        user: logData.email,
+        device: logData.device || 'Mobile App',
+        timestamp: Date.now(),
+        details: logData.reason || 'Parent login attempt via mobile app',
+        status: logData.status,
+        parentUid: logData.parentUid,
+        attempts: logData.attempts || 1,
+        type: "parent_login",
+        severity: logData.status === 'suspicious' ? 'high' : 
+                  logData.status === 'failed' ? 'medium' : 'low'
+      };
+
+      await set(newLogRef, logEntry);
+      console.log(`✅ Login attempt logged: ${logData.status}`);
+      return true;
+    } catch (error: any) {
+      console.error('Error logging login attempt:', error);
+      return false;
+    }
+  }, []);
+
   // Security: Track failed login attempts
-  const trackFailedAttempt = useCallback(async (identifier: string) => {
+  const trackFailedAttempt = useCallback(async (identifier: string): Promise<boolean> => {
     const attempts = (failedAttemptsRef.current.get(identifier) || 0) + 1;
     failedAttemptsRef.current.set(identifier, attempts);
 
     console.log(`🔒 Failed attempt #${attempts} for ${identifier}`);
+
+    // Log suspicious activity after 3 failed attempts
+    if (attempts >= 3) {
+      const [uid, email] = identifier.split('_');
+      await logSuspiciousActivity({
+        parentUid: uid,
+        email: email,
+        status: attempts >= MAX_LOGIN_ATTEMPTS ? 'lockout' : 'suspicious',
+        reason: attempts >= MAX_LOGIN_ATTEMPTS 
+          ? `Account locked after ${attempts} failed login attempts` 
+          : `Multiple failed login attempts (${attempts})`,
+        attempts: attempts,
+        device: 'Mobile App'
+      });
+    }
 
     if (attempts >= MAX_LOGIN_ATTEMPTS) {
       const lockUntil = Date.now() + LOCKOUT_DURATION;
@@ -222,7 +324,7 @@ const ParentLoginScreen = () => {
     }
 
     return false;
-  }, []);
+  }, [logSuspiciousActivity]);
 
   // Security: Reset failed attempts on successful login
   const resetFailedAttempts = useCallback(async (identifier: string) => {
@@ -241,20 +343,21 @@ const ParentLoginScreen = () => {
   // Security: Load lockout status on mount
   useEffect(() => {
     const loadLockoutStatus = async () => {
-      if (!parentUid) return;
+      if (!parentUid || !email) return;
 
       try {
-        const lockoutData = await AsyncStorage.getItem(`lockout_${parentUid}`);
+        const identifier = `${sanitizeInput(parentUid)}_${sanitizeInput(email)}`;
+        const lockoutData = await AsyncStorage.getItem(`lockout_${identifier}`);
         if (lockoutData) {
           const { lockUntil, attempts } = JSON.parse(lockoutData);
           const now = Date.now();
 
           if (lockUntil > now) {
-            lockoutTimersRef.current.set(parentUid, lockUntil);
-            failedAttemptsRef.current.set(parentUid, attempts);
-            await checkAccountLock(parentUid);
+            lockoutTimersRef.current.set(identifier, lockUntil);
+            failedAttemptsRef.current.set(identifier, attempts);
+            await checkAccountLock(identifier);
           } else {
-            await AsyncStorage.removeItem(`lockout_${parentUid}`);
+            await AsyncStorage.removeItem(`lockout_${identifier}`);
           }
         }
       } catch (error) {
@@ -263,7 +366,7 @@ const ParentLoginScreen = () => {
     };
 
     loadLockoutStatus();
-  }, [parentUid, checkAccountLock]);
+  }, [parentUid, email, checkAccountLock]);
 
   // Security: Update lockout timer countdown
   useEffect(() => {
@@ -441,7 +544,7 @@ const ParentLoginScreen = () => {
     };
   }, [storeSessionData, clearSessionData, getSessionData]);
 
-  // Handle back button press - prevent going back if logged in
+  // Handle back button press
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (auth.currentUser) {
@@ -452,41 +555,6 @@ const ParentLoginScreen = () => {
     });
 
     return () => backHandler.remove();
-  }, []);
-
-  // Function to log login attempts
-  const logLoginAttempt = useCallback(async (logData: {
-    parentUid: string;
-    email: string;
-    status: 'success' | 'failed' | 'suspicious';
-    reason?: string;
-    attempts?: number;
-    device?: string;
-  }) => {
-    if (!isMountedRef.current) return true;
-
-    try {
-      const auditLogRef = ref(database, "parentLoginLog");
-      const newLogRef = push(auditLogRef);
-      
-      const logEntry = {
-        action: 'Parent Login Attempt',
-        user: logData.email,
-        device: logData.device || 'Mobile App',
-        timestamp: Date.now(),
-        details: logData.reason || 'Parent login attempt via mobile app',
-        status: logData.status,
-        parentUid: logData.parentUid,
-        type: "parent_login"
-      };
-
-      await set(newLogRef, logEntry);
-      console.log(`✅ Login attempt logged: ${logData.status}`);
-      return true;
-    } catch (error: any) {
-      console.error('Error logging login attempt:', error);
-      return true;
-    }
   }, []);
 
   // Function to verify parent credentials
@@ -684,20 +752,49 @@ const ParentLoginScreen = () => {
     
     const sanitizedEmail = sanitizeInput(email);
     const sanitizedUid = sanitizeInput(parentUid);
+    const identifier = `${sanitizedUid}_${sanitizedEmail}`;
+    
+    // Check rate limiting
+    if (!checkRateLimit(identifier)) {
+      Alert.alert('Too Many Requests', 'Please wait a minute before trying again.');
+      return;
+    }
+    
+    // Check if account is locked
+    const isLocked = await checkAccountLock(identifier);
+    if (isLocked) {
+      Alert.alert(
+        'Account Locked', 
+        `Too many failed attempts. Account is locked for ${Math.ceil(lockoutTimeRemaining / 60)} more minutes.`
+      );
+      return;
+    }
     
     safeSetLoading(true);
     setLoadingMessage('Verifying credentials...');
     
     try {
       console.log("🔍 Verifying parent credentials...");
-      console.log("Parent UID:", sanitizedUid);
-      console.log("Email:", sanitizedEmail);
       
       // Verify credentials first
       const parentVerification = await verifyParentCredentials(sanitizedUid, sanitizedEmail);
       
       if (!parentVerification) {
         console.log("❌ Parent verification failed");
+        
+        // Track failed attempt
+        const attempts = await trackFailedAttempt(identifier);
+        
+        // Log failed attempt
+        await logLoginAttempt({
+          parentUid: sanitizedUid,
+          email: sanitizedEmail,
+          status: 'failed',
+          reason: 'Parent UID and email combination not found',
+          attempts: attempts ? MAX_LOGIN_ATTEMPTS : (failedAttemptsRef.current.get(identifier) || 0),
+          device: 'Mobile App'
+        });
+        
         safeSetLoading(false);
         Alert.alert(
           'Invalid Credentials', 
@@ -715,9 +812,8 @@ const ParentLoginScreen = () => {
       setLoadingMessage('Sending OTP email...');
       console.log("📧 Sending OTP to:", sanitizedEmail);
       
-      // Use Railway OTP Server URL
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
       
       let response;
       try {
@@ -747,8 +843,8 @@ const ParentLoginScreen = () => {
       if (result.success) {
         setOtpSent(true);
         setShowOTPInput(true);
-        setOtpExpiry(300); // 5 minutes
-        setResendCooldown(60); // 1 minute cooldown
+        setOtpExpiry(300);
+        setResendCooldown(60);
         
         // Start OTP expiry timer
         otpTimerRef.current = setInterval(() => {
@@ -774,7 +870,7 @@ const ParentLoginScreen = () => {
         
         console.log('✅ OTP sent successfully to:', sanitizedEmail);
       } else {
-        Alert.alert('Error', result.message || 'Failed to send OTP. Please try again.');
+        throw new Error(result.message || 'Failed to send OTP');
       }
     } catch (error: any) {
       console.error('Error sending OTP:', error);
@@ -783,8 +879,8 @@ const ParentLoginScreen = () => {
       setLoadingMessage('');
       safeSetLoading(false);
     }
-  }, [email, parentUid, validateForm, sanitizeInput, verifyParentCredentials, safeSetLoading]);
-  
+  }, [email, parentUid, validateForm, sanitizeInput, verifyParentCredentials, checkRateLimit, checkAccountLock, trackFailedAttempt, logLoginAttempt, safeSetLoading]);
+
   // OTP: Verify OTP and login
   const verifyOTPAndLogin = useCallback(async () => {
     if (!otp || otp.length !== 6) {
@@ -802,7 +898,7 @@ const ParentLoginScreen = () => {
     try {
       // Verify OTP with Railway server
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
       
       let response;
       try {
@@ -829,6 +925,22 @@ const ParentLoginScreen = () => {
       const result = await parseResponseSafe(response);
       
       if (!result.success) {
+        // Track failed OTP attempt
+        const attempts = (failedAttemptsRef.current.get(identifier) || 0) + 1;
+        failedAttemptsRef.current.set(identifier, attempts);
+        
+        // Log as suspicious after 3 failed OTP attempts
+        if (attempts >= 3) {
+          await logSuspiciousActivity({
+            parentUid: sanitizedUid,
+            email: sanitizedEmail,
+            status: 'suspicious',
+            reason: `Multiple failed OTP attempts (${attempts})`,
+            attempts: attempts,
+            device: 'Mobile App'
+          });
+        }
+        
         safeSetLoading(false);
         setLoadingMessage('');
         Alert.alert('Invalid OTP', result.message || 'The OTP code you entered is incorrect.');
@@ -844,34 +956,51 @@ const ParentLoginScreen = () => {
       const loginEmail = parentVerification?.loginEmail || sanitizedEmail;
       
       console.log('🔐 Signing in with Firebase...');
-      const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
-      const user = userCredential.user;
-      
-      console.log('💾 Saving session data...');
-      // Reset failed attempts
-      await resetFailedAttempts(identifier);
-      await storeSessionData(user);
-      console.log('🟢 After login: auth.currentUser:', auth.currentUser);
-      const sessionDataAfterLogin = await getSessionData();
-      console.log('🟢 After login: sessionData:', sessionDataAfterLogin);
-      
-      await logLoginAttempt({
-        parentUid: sanitizedUid,
-        email: loginEmail,
-        status: 'success',
-        reason: 'Successful parent login with OTP verification',
-        device: 'Mobile App'
-      });
-      
-      // Clear timers
-      if (otpTimerRef.current) clearInterval(otpTimerRef.current);
-      if (resendTimerRef.current) clearInterval(resendTimerRef.current);
-      
-      console.log('✅ Login successful, navigating to home...');
-      setLoadingMessage('');
-      safeSetLoading(false);
-      
-      router.replace("/home");
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
+        const user = userCredential.user;
+        
+        console.log('💾 Saving session data...');
+        // Reset failed attempts on successful login
+        await resetFailedAttempts(identifier);
+        await storeSessionData(user);
+        
+        await logLoginAttempt({
+          parentUid: sanitizedUid,
+          email: loginEmail,
+          status: 'success',
+          reason: 'Successful parent login with OTP verification',
+          device: 'Mobile App'
+        });
+        
+        // Clear timers
+        if (otpTimerRef.current) clearInterval(otpTimerRef.current);
+        if (resendTimerRef.current) clearInterval(resendTimerRef.current);
+        
+        console.log('✅ Login successful, navigating to home...');
+        setLoadingMessage('');
+        safeSetLoading(false);
+        
+        router.replace("/home");
+      } catch (error: any) {
+        // Handle Firebase auth errors
+        console.error('Firebase auth error:', error);
+        
+        // Track failed login attempt
+        const attempts = await trackFailedAttempt(identifier);
+        
+        // Log failed login attempt
+        await logLoginAttempt({
+          parentUid: sanitizedUid,
+          email: loginEmail,
+          status: 'failed',
+          reason: `Firebase auth error: ${error.message}`,
+          attempts: attempts ? MAX_LOGIN_ATTEMPTS : (failedAttemptsRef.current.get(identifier) || 0),
+          device: 'Mobile App'
+        });
+        
+        throw error;
+      }
     } catch (error: any) {
       console.error('OTP verification error:', error);
       Alert.alert('Login Failed', error.message || 'Failed to complete login. Please try again.');
@@ -879,7 +1008,7 @@ const ParentLoginScreen = () => {
       setLoadingMessage('');
       safeSetLoading(false);
     }
-  }, [otp, email, parentUid, password, sanitizeInput, verifyParentCredentials, resetFailedAttempts, storeSessionData, logLoginAttempt, safeSetLoading]);
+  }, [otp, email, parentUid, password, sanitizeInput, verifyParentCredentials, resetFailedAttempts, storeSessionData, logLoginAttempt, logSuspiciousActivity, trackFailedAttempt, safeSetLoading]);
 
   // Login function with OTP enabled
   const handleLogin = useCallback(async () => {
@@ -1115,10 +1244,8 @@ const ParentLoginScreen = () => {
             <View style={styles.circle2} />
             <View style={styles.circle3} />
             <View style={styles.headerContent}>
-              // ...existing code...
-              <Text style={styles.titleText}>Parent Portal</Text>
+              <Text style={styles.titleText}>Parent Login</Text>
               <Text style={styles.subtitleText}>Secure Access to Your Child's Progress</Text>
-              
               {/* Show current login status */}
               {auth.currentUser && (
                 <View style={styles.loggedInBadge}>
@@ -1270,7 +1397,7 @@ const ParentLoginScreen = () => {
                   </View>
                 ) : (
                   <>
-                    <Text style={styles.buttonText}>LOGIN TO PARENT PORTAL</Text>
+                    <Text style={styles.buttonText}>LOGIN</Text>
                     <Text style={styles.buttonIcon}>→</Text>
                   </>
                 )}
@@ -1287,8 +1414,6 @@ const ParentLoginScreen = () => {
                 </Text>
               </Text>
             </View>
-
-            // ...existing code...
             </View>
             
             {/* Decorative Footer */}

@@ -1,6 +1,6 @@
-// server.js
+// server.js - COMPLETE FIXED VERSION
 require('dotenv').config();
-console.log("FROM_EMAIL =", process.env.FROM_EMAIL); // should print value
+console.log("🚀 Starting Notification Server...");
 
 const admin = require('firebase-admin');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
@@ -13,453 +13,113 @@ admin.initializeApp({
 
 const db = admin.database();
 
-console.log('🚀 Notification Server Started');
-console.log('📡 Listening for notification requests...');
+console.log('✅ Firebase initialized');
+console.log('📡 Database URL:', 'https://rfidattendance-595f4-default-rtdb.firebaseio.com');
 
-// Listen for new notification requests
-const notificationsRef = db.ref('notifications');
-
-notificationsRef.on('child_added', async snapshot => {
-  const notif = snapshot.val();
-  const key = snapshot.key;
-  
-
-  if (!notif || notif.sent) {
-    return; // Skip if already sent
-  }
-
-  // === BACKEND DEDUPLICATION FOR ATTENDANCE SCAN NOTIFICATIONS ===
-  // Only allow one attendance_scan per student per day per action
-  if (notif.data && notif.data.type === 'attendance_scan') {
-    const studentRfid = notif.data.studentRfid || notif.data.studentId || notif.data.rfid;
-    const action = notif.data.action || notif.data.status || 'Time In';
-    // Try to extract date from notif.data.time (format: 'YYYY-MM-DD HH:mm:ss')
-    let date = '';
-    if (notif.data.time) {
-      date = notif.data.time.split(' ')[0];
-    } else if (notif.data.timestamp) {
-      // Fallback: get date from timestamp
-      const d = new Date(notif.data.timestamp);
-      date = d.toISOString().split('T')[0];
-    }
-    if (studentRfid && date && action) {
-      const dedupKey = `attendanceNotifSent/${studentRfid}/${date}/${action}`;
-      const alreadySentSnap = await db.ref(dedupKey).once('value');
-      if (alreadySentSnap.exists()) {
-        console.log('⏩ Attendance scan notification already sent for this student/date/action:', dedupKey);
-        await snapshot.ref.update({ sent: true, skipped: true, skippedAt: Date.now(), reason: 'deduplicated' });
-        return;
-      }
-      // Mark as sent before actually sending (to prevent race conditions)
-      await db.ref(dedupKey).set({ sent: true, sentAt: Date.now() });
-    }
-  }
-
+// ==================== GLOBAL HELPERS ====================
+async function findParentPushTokenByStudentId(studentId) {
   try {
-    console.log('📨 New notification request:', notif.title);
+    console.log(`🔍 Looking for parent token for student: ${studentId}`);
     
-    // Get parent's Expo Push Token (try multiple locations)
-    let expoPushToken = null;
-    
-    // Try location 1: /users/{userId}/expoPushToken
-    const parentSnap = await db.ref(`users/${notif.toParentId}/expoPushToken`).once('value');
-    const parentData = parentSnap.val();
-    
-    if (parentData && parentData.token) {
-      expoPushToken = parentData.token;
-      console.log('✅ Found token in users/{userId}/expoPushToken');
-    } else {
-      // Try location 2: /parents/{userId}
-      const altParentSnap = await db.ref(`parents/${notif.toParentId}`).once('value');
-      const altParentData = altParentSnap.val();
-      
-      if (altParentData && (altParentData.fcmToken || altParentData.expoPushToken)) {
-        expoPushToken = altParentData.fcmToken || altParentData.expoPushToken;
-        console.log('✅ Found token in parents/{userId}');
-      }
-    }
-
-    if (!expoPushToken) {
-      console.log('❌ No token found for parent:', notif.toParentId);
-      await snapshot.ref.update({ 
-        sent: true, 
-        error: 'No token found', 
-        sentAt: Date.now() 
-      });
-      return;
-    }
-
-    console.log('📤 Sending push notification via Expo...');
-
-    // Determine if this is a pickup confirmation request
-    const isPickupReminder = notif.data && (
-      notif.data.type === 'reminder' || 
-      notif.data.type === 'pickup_reminder_alert' ||
-      notif.data.type === 'daily_reminder_1230_2100' ||
-      notif.data.type === 'forgot_scan_reminder'
-    );
-
-    // Send via Expo Push Notification Service with HIGH priority
-    // This will make notification appear even on locked screen
-    const message = {
-      to: expoPushToken,
-      sound: 'default',
-      title: notif.title,
-      body: notif.body,
-      data: notif.data || {},
-      priority: 'high',  // Always high priority for immediate delivery
-      channelId: 'default',
-      badge: 1,
-      ttl: 0,  // Deliver immediately, don't queue
-      // Add category for action buttons
-      categoryId: isPickupReminder ? 'PICKUP_CONFIRMATION' : undefined
-    };
-
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Accept-encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(message),
-    });
-
-    const result = await response.json();
-    
-    // Check for success (Expo returns { data: { status: 'ok', id: '...' } })
-    if (result.data) {
-      if (result.data.status === 'ok') {
-        console.log('✅ Notification sent successfully!');
-        console.log('📬 Receipt ID:', result.data.id);
-      } else if (result.data[0] && result.data[0].status === 'ok') {
-        console.log('✅ Notification sent successfully!');
-        console.log('📬 Receipt ID:', result.data[0].id);
-      } else {
-        console.log('⚠️ Notification sent but with status:', result.data.status || result.data[0]?.status);
-        console.log('Details:', result.data.message || result.data[0]?.message || result);
-      }
-    } else {
-      console.log('⚠️ Unexpected response:', result);
-    }
-
-    // Mark as sent
-    await snapshot.ref.update({ 
-      sent: true, 
-      sentAt: Date.now(),
-      response: result
-    });
-
-  } catch (err) {
-    console.error('❌ Error sending notification:', err);
-    await snapshot.ref.update({ 
-      sent: false, 
-      error: err.message,
-      errorAt: Date.now()
-    });
-  }
-});
-
-console.log('✅ Server is running and listening for notifications');
-console.log('📍 Database URL:', 'https://rfidattendance-595f4-default-rtdb.firebaseio.com');
-console.log('🔔 Ready to send push notifications!');
-
-// ==================== TEACHER MESSAGE LISTENER ====================
-// Listen for new teacher messages and send push notifications to parents
-console.log('👨‍🏫 Setting up teacher message listener...');
-
-const messagesRef = db.ref('messages');
-const processedMessages = new Set(); // Track processed messages to avoid duplicates
-
-messagesRef.on('child_changed', async (snapshot) => {
-  const studentId = snapshot.key;
-  const messagesData = snapshot.val();
-  
-  if (!messagesData) return;
-  
-  console.log(`📬 Messages updated for student: ${studentId}`);
-  
-  // Find the latest teacher message
-  const messages = Object.entries(messagesData)
-    .map(([id, data]) => ({ id, ...data }))
-    .filter(msg => msg.sender === 'teacher' && !msg.read)
-    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-  
-  if (messages.length === 0) {
-    console.log('No unread teacher messages found');
-    return;
-  }
-  
-  const latestMessage = messages[0];
-  const messageKey = `${studentId}_${latestMessage.id}`;
-  
-  // Skip if already processed
-  if (processedMessages.has(messageKey)) {
-    console.log('Message already processed:', messageKey);
-    return;
-  }
-  
-  processedMessages.add(messageKey);
-  
-  // Clean up old processed messages (keep last 100)
-  if (processedMessages.size > 100) {
-    const firstItem = processedMessages.values().next().value;
-    processedMessages.delete(firstItem);
-  }
-  
-  try {
-    console.log(`💬 New teacher message for student ${studentId}:`, latestMessage.text.substring(0, 50));
-    
-    // Get student data to find parent
+    // Get student data
     const studentSnapshot = await db.ref(`students/${studentId}`).once('value');
     const studentData = studentSnapshot.val();
     
     if (!studentData) {
       console.log('❌ Student not found:', studentId);
-      return;
+      return null;
     }
     
-    const studentName = `${studentData.firstName || ''} ${studentData.lastName || ''}`.trim();
-    console.log(`👨‍👩‍👧 Student: ${studentName}`);
+    console.log('👨‍🎓 Student found:', studentData.firstName);
     
-    // Find parent's Expo Push Token
-    let expoPushToken = null;
+    // Get guardian emails
+    let guardianEmails = [];
+    if (studentData.guardians) {
+      if (Array.isArray(studentData.guardians)) {
+        guardianEmails = studentData.guardians.map(g => g.email).filter(Boolean);
+      } else if (typeof studentData.guardians === 'object') {
+        guardianEmails = Object.values(studentData.guardians)
+          .map(g => g.email)
+          .filter(Boolean);
+      }
+    }
     
-    // Try to get parent FCM token from students/{studentId}/parentFcmToken
-    if (studentData.parentFcmToken) {
-      expoPushToken = studentData.parentFcmToken;
-      console.log('✅ Found token in student.parentFcmToken');
-    } 
-    // Try users table by parent email
-    else if (studentData.parentEmail) {
-      console.log('🔍 Looking up parent by email:', studentData.parentEmail);
-      const usersSnapshot = await db.ref('users').orderByChild('email').equalTo(studentData.parentEmail).once('value');
-      const usersData = usersSnapshot.val();
+    console.log('📧 Guardian emails:', guardianEmails);
+    
+    if (guardianEmails.length === 0) {
+      console.log('❌ No guardian emails found');
+      return null;
+    }
+    
+    // Search for parent user by email
+    for (const email of guardianEmails) {
+      console.log(`🔍 Searching for parent with email: ${email}`);
       
-      if (usersData) {
-        const parentId = Object.keys(usersData)[0];
-        const parentData = usersData[parentId];
-        console.log('👤 Found parent user:', parentId);
-        
-        // Check expoPushToken object structure (has token property)
-        if (parentData.expoPushToken) {
-          if (typeof parentData.expoPushToken === 'string') {
-            expoPushToken = parentData.expoPushToken;
-            console.log('✅ Found token (string) in users/{parentId}/expoPushToken');
-          } else if (parentData.expoPushToken.token) {
-            expoPushToken = parentData.expoPushToken.token;
-            console.log('✅ Found token (object) in users/{parentId}/expoPushToken.token');
-          }
-        }
-        // Fallback to fcmToken
-        if (!expoPushToken && parentData.fcmToken) {
-          expoPushToken = parentData.fcmToken;
-          console.log('✅ Found token in users/{parentId}/fcmToken');
-        }
-        
-        // Additional fallback: Check parents/{parentId}
-        if (!expoPushToken) {
-          const parentsSnapshot = await db.ref(`parents/${parentId}`).once('value');
-          const parentsData = parentsSnapshot.val();
-          if (parentsData) {
-            if (parentsData.expoPushToken) {
-              expoPushToken = parentsData.expoPushToken;
-              console.log('✅ Found token in parents/{parentId}/expoPushToken');
-            } else if (parentsData.fcmToken) {
-              expoPushToken = parentsData.fcmToken;
-              console.log('✅ Found token in parents/{parentId}/fcmToken');
+      const usersSnapshot = await db.ref('users')
+        .orderByChild('email')
+        .equalTo(email.toLowerCase())
+        .once('value');
+      
+      if (usersSnapshot.exists()) {
+        usersSnapshot.forEach((userSnap) => {
+          const userData = userSnap.val();
+          console.log('👤 Found parent user:', userSnap.key);
+          
+          // Check for expoPushToken in various locations
+          if (userData.expoPushToken) {
+            if (typeof userData.expoPushToken === 'string') {
+              console.log('✅ Found expoPushToken (string):', userData.expoPushToken.substring(0, 20) + '...');
+              return userData.expoPushToken;
+            } else if (userData.expoPushToken.token) {
+              console.log('✅ Found expoPushToken (object):', userData.expoPushToken.token.substring(0, 20) + '...');
+              return userData.expoPushToken.token;
             }
           }
-        }
-      } else {
-        console.log('❌ No user found with email:', studentData.parentEmail);
+          
+          // Check for pushToken
+          if (userData.pushToken && userData.pushToken.token) {
+            console.log('✅ Found pushToken:', userData.pushToken.token.substring(0, 20) + '...');
+            return userData.pushToken.token;
+          }
+          
+          // Check for fcmToken
+          if (userData.fcmToken) {
+            console.log('✅ Found fcmToken:', userData.fcmToken.substring(0, 20) + '...');
+            return userData.fcmToken;
+          }
+        });
       }
-    } else {
-      console.log('❌ No parent email found in student data');
     }
     
-    if (!expoPushToken) {
-      console.log('❌ No push token found for parent of student:', studentId);
-      return;
-    }
+    console.log('❌ No push token found for any guardian');
+    return null;
     
-    console.log('📤 Sending push notification to parent...');
-    
-    // Send via Expo Push Notification Service
-    const message = {
-      to: expoPushToken,
-      sound: 'default',
-      title: `💬 ${latestMessage.senderName || 'Teacher'}`,
-      body: latestMessage.text.substring(0, 100) + (latestMessage.text.length > 100 ? '...' : ''),
-      data: {
-        type: 'teacher_message',
-        studentId: studentId,
-        studentName: studentName,
-        teacherName: latestMessage.senderName || 'Teacher',
-        messageId: latestMessage.id,
-        timestamp: latestMessage.timestamp || Date.now()
-      },
-      priority: 'high',
-      channelId: 'messages',
-      badge: 1,
-      ttl: 0
-    };
-    
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Accept-encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(message),
-    });
-    
-    const result = await response.json();
-    
-    if (result.data) {
-      if (result.data.status === 'ok' || (result.data[0] && result.data[0].status === 'ok')) {
-        console.log('✅ Teacher message notification sent successfully!');
-        console.log('📬 Receipt ID:', result.data.id || result.data[0]?.id);
-      } else {
-        console.log('⚠️ Notification sent with status:', result.data.status || result.data[0]?.status);
-      }
-    } else {
-      console.log('⚠️ Unexpected response:', result);
-    }
-    
-  } catch (err) {
-    console.error('❌ Error sending teacher message notification:', err);
+  } catch (error) {
+    console.error('❌ Error finding parent token:', error);
+    return null;
   }
-});
+}
 
-console.log('✅ Teacher message listener active!');
-
-// ==================== MANUAL ATTENDANCE LISTENER ====================
-// Listen for manual attendance entries and send notifications to parents
-console.log('📝 Setting up manual attendance listener...');
-
-const manualAttendanceRef = db.ref('manualAttendance');
-const processedManualEntries = new Set();
-
-manualAttendanceRef.on('child_added', async (snapshot) => {
-  const entryKey = snapshot.key;
-  const entry = snapshot.val();
-  
-  if (!entry || processedManualEntries.has(entryKey)) {
-    return;
-  }
-  
-  processedManualEntries.add(entryKey);
-  
-  // Clean up old processed entries
-  if (processedManualEntries.size > 200) {
-    const firstItem = processedManualEntries.values().next().value;
-    processedManualEntries.delete(firstItem);
-  }
-  
+async function sendExpoPushNotification(expoPushToken, title, body, data = {}) {
   try {
-    console.log(`📝 New manual attendance entry for: ${entry.studentName}`);
-    console.log(`   Status: ${entry.status}, Reason: ${entry.reason}`);
-    
-    // Get student data to find parent token
-    const studentSnapshot = await db.ref(`students/${entry.studentRfid}`).once('value');
-    const studentData = studentSnapshot.val();
-    
-    if (!studentData) {
-      console.log('❌ Student not found:', entry.studentRfid);
-      return;
+    if (!expoPushToken || !expoPushToken.startsWith('ExponentPushToken[')) {
+      console.log('❌ Invalid Expo push token:', expoPushToken);
+      return false;
     }
     
-    // Find parent's Expo Push Token
-    let expoPushToken = null;
-    let parentId = null;
+    console.log('📤 Sending Expo push notification...');
+    console.log('📱 Token:', expoPushToken.substring(0, 30) + '...');
+    console.log('📝 Title:', title);
+    console.log('📝 Body:', body);
     
-    // Get parent email from guardians
-    let parentEmail = null;
-    if (studentData.guardians) {
-      const guardians = Array.isArray(studentData.guardians) 
-        ? studentData.guardians 
-        : Object.values(studentData.guardians);
-      
-      if (guardians.length > 0) {
-        parentEmail = guardians[0].email;
-      }
-    }
-    
-    if (!parentEmail) {
-      console.log('❌ No parent email found for student:', entry.studentRfid);
-      return;
-    }
-    
-    console.log('🔍 Looking up parent by email:', parentEmail);
-    
-    // Find parent user by email
-    const usersSnapshot = await db.ref('users').orderByChild('email').equalTo(parentEmail).once('value');
-    const usersData = usersSnapshot.val();
-    
-    if (usersData) {
-      parentId = Object.keys(usersData)[0];
-      const parentData = usersData[parentId];
-      console.log('👤 Found parent user:', parentId);
-      
-      // Try different token locations
-      if (typeof parentData.expoPushToken === 'string') {
-        expoPushToken = parentData.expoPushToken;
-        console.log('✅ Found token (string)');
-      } else if (parentData.expoPushToken && parentData.expoPushToken.token) {
-        expoPushToken = parentData.expoPushToken.token;
-        console.log('✅ Found token (object)');
-      } else if (parentData.fcmToken) {
-        expoPushToken = parentData.fcmToken;
-        console.log('✅ Found fcmToken');
-      }
-      
-      // Fallback to parents table
-      if (!expoPushToken) {
-        const parentsSnapshot = await db.ref(`parents/${parentId}`).once('value');
-        const parentsData = parentsSnapshot.val();
-        if (parentsData) {
-          expoPushToken = parentsData.expoPushToken || parentsData.fcmToken;
-          if (expoPushToken) console.log('✅ Found token in parents table');
-        }
-      }
-    }
-    
-    if (!expoPushToken) {
-      console.log('❌ No push token found for parent');
-      return;
-    }
-    
-    console.log('📤 Sending manual attendance notification...');
-    
-    // Determine notification title based on status
-    let title = '✅ Manual Attendance Entry';
-    if (entry.status === 'Late') {
-      title = '⚠️ Manual Entry - Late Arrival';
-    } else if (entry.status === 'Absent') {
-      title = '❌ Manual Entry - Marked Absent';
-    }
-    
-    // Send push notification
     const message = {
       to: expoPushToken,
       sound: 'default',
       title: title,
-      body: `${entry.studentName} was manually marked ${entry.status} for ${entry.date} at ${entry.time}. Reason: ${entry.reason}`,
-      data: {
-        type: 'manual_attendance',
-        studentRfid: entry.studentRfid,
-        studentName: entry.studentName,
-        status: entry.status,
-        date: entry.date,
-        time: entry.time,
-        reason: entry.reason,
-        enteredBy: entry.enteredBy,
-        timestamp: entry.timestamp || Date.now()
-      },
+      body: body,
+      data: data,
       priority: 'high',
-      channelId: 'attendance',
+      channelId: 'default',
       badge: 1,
       ttl: 0
     };
@@ -467,7 +127,7 @@ manualAttendanceRef.on('child_added', async (snapshot) => {
     const response = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: {
-        Accept: 'application/json',
+        'Accept': 'application/json',
         'Accept-encoding': 'gzip, deflate',
         'Content-Type': 'application/json',
       },
@@ -475,25 +135,301 @@ manualAttendanceRef.on('child_added', async (snapshot) => {
     });
     
     const result = await response.json();
+    console.log('📬 Expo API Response:', JSON.stringify(result, null, 2));
     
     if (result.data) {
-      if (result.data.status === 'ok' || (result.data[0] && result.data[0].status === 'ok')) {
-        console.log('✅ Manual attendance notification sent successfully!');
-        console.log('📬 Receipt ID:', result.data.id || result.data[0]?.id);
+      const ticket = result.data[0] || result.data;
+      if (ticket && ticket.status === 'ok') {
+        console.log('✅ Push notification sent successfully!');
+        console.log('🎫 Receipt ID:', ticket.id);
+        return true;
       } else {
-        console.log('⚠️ Notification status:', result.data.status || result.data[0]?.status);
+        console.log('⚠️ Push notification failed with status:', ticket?.status);
+        console.log('📄 Error details:', ticket?.message || ticket?.details);
+        return false;
       }
+    } else {
+      console.log('❌ Invalid response from Expo:', result);
+      return false;
     }
     
-  } catch (err) {
-    console.error('❌ Error sending manual attendance notification:', err);
+  } catch (error) {
+    console.error('❌ Error sending Expo push notification:', error);
+    return false;
+  }
+}
+
+// ==================== TEACHER MESSAGE LISTENER ====================
+console.log('👨‍🏫 Setting up teacher message listener...');
+
+const messagesRef = db.ref('messages');
+const processedMessages = new Set();
+
+messagesRef.on('child_added', async (studentSnapshot) => {
+  const studentId = studentSnapshot.key;
+  console.log(`\n📬 New message container for student: ${studentId}`);
+  
+  // Listen for new messages under this student
+  const studentMessagesRef = db.ref(`messages/${studentId}`);
+  
+  studentMessagesRef.on('child_added', async (messageSnapshot) => {
+    const messageId = messageSnapshot.key;
+    const message = messageSnapshot.val();
+    
+    const messageKey = `${studentId}_${messageId}`;
+    
+    if (processedMessages.has(messageKey)) {
+      console.log('⏩ Message already processed:', messageKey);
+      return;
+    }
+    
+    // Skip if not a teacher message
+    if (message.sender !== 'teacher') {
+      console.log('⏩ Skipping non-teacher message');
+      processedMessages.add(messageKey);
+      return;
+    }
+    
+    // Skip if already read
+    if (message.read) {
+      console.log('⏩ Skipping already read message');
+      processedMessages.add(messageKey);
+      return;
+    }
+    
+    processedMessages.add(messageKey);
+    console.log(`💬 New teacher message: ${messageId}`);
+    console.log(`📝 Message: ${message.text}`);
+    
+    // Clean up old processed messages
+    if (processedMessages.size > 1000) {
+      const firstItem = processedMessages.values().next().value;
+      processedMessages.delete(firstItem);
+    }
+    
+    try {
+      // Get parent push token
+      const expoPushToken = await findParentPushTokenByStudentId(studentId);
+      
+      if (!expoPushToken) {
+        console.log('❌ Cannot send notification: No parent token found');
+        return;
+      }
+      
+      // Get student name
+      const studentSnapshot = await db.ref(`students/${studentId}`).once('value');
+      const studentData = studentSnapshot.val();
+      const studentName = studentData ? 
+        `${studentData.firstName || ''} ${studentData.lastName || ''}`.trim() : 
+        'Your child';
+      
+      // Prepare notification data
+      const notificationData = {
+        type: 'teacher_message',
+        studentId: studentId,
+        studentName: studentName,
+        teacherName: message.senderName || 'Teacher',
+        messageId: messageId,
+        messageText: message.text,
+        timestamp: message.timestamp || Date.now(),
+        screen: 'messages',
+        action: 'open_messages'
+      };
+      
+      // Send push notification
+      const title = `💬 Message from ${message.senderName || 'Teacher'}`;
+      const body = message.text.length > 100 ? 
+        message.text.substring(0, 100) + '...' : 
+        message.text;
+      
+      const sent = await sendExpoPushNotification(expoPushToken, title, body, notificationData);
+      
+      if (sent) {
+        console.log('✅ Teacher message notification sent successfully!');
+        
+        // Create notification record
+        const notificationRecord = {
+          studentId: studentId,
+          studentName: studentName,
+          teacherName: message.senderName || 'Teacher',
+          message: message.text,
+          timestamp: Date.now(),
+          type: 'teacher_message',
+          delivered: true,
+          pushSent: true
+        };
+        
+        // Save to notifications log
+        await db.ref('notificationLogs').push(notificationRecord);
+        
+      } else {
+        console.log('❌ Failed to send teacher message notification');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error processing teacher message:', error);
+    }
+  });
+});
+
+// ==================== REAL-TIME MESSAGE MONITOR ====================
+// Alternative approach: Monitor all messages in real-time
+console.log('👁️ Setting up real-time message monitor...');
+
+const allMessagesRef = db.ref('messages');
+allMessagesRef.on('value', async (snapshot) => {
+  if (!snapshot.exists()) return;
+  
+  const students = snapshot.val();
+  
+  for (const studentId in students) {
+    const messages = students[studentId];
+    
+    if (typeof messages !== 'object') continue;
+    
+    for (const messageId in messages) {
+      const message = messages[messageId];
+      const messageKey = `${studentId}_${messageId}`;
+      
+      // Process new unread teacher messages
+      if (message.sender === 'teacher' && !message.read && !message.notificationSent) {
+        if (processedMessages.has(messageKey)) continue;
+        
+        processedMessages.add(messageKey);
+        console.log(`\n📨 Real-time: New teacher message for ${studentId}`);
+        
+        try {
+          const expoPushToken = await findParentPushTokenByStudentId(studentId);
+          
+          if (expoPushToken) {
+            // Get student info
+            const studentSnapshot = await db.ref(`students/${studentId}`).once('value');
+            const studentData = studentSnapshot.val();
+            const studentName = studentData ? 
+              `${studentData.firstName || ''} ${studentData.lastName || ''}`.trim() : 
+              'Your child';
+            
+            // Send notification
+            const title = `💬 ${message.senderName || 'Teacher'}`;
+            const body = message.text.length > 80 ? 
+              message.text.substring(0, 80) + '...' : 
+              message.text;
+            
+            const notificationData = {
+              type: 'teacher_message',
+              studentId: studentId,
+              studentName: studentName,
+              teacherName: message.senderName || 'Teacher',
+              messageId: messageId,
+              timestamp: message.timestamp || Date.now(),
+              screen: 'messages'
+            };
+            
+            await sendExpoPushNotification(expoPushToken, title, body, notificationData);
+            
+            // Mark as notification sent
+            await db.ref(`messages/${studentId}/${messageId}`).update({
+              notificationSent: true,
+              notificationSentAt: Date.now()
+            });
+            
+            console.log('✅ Real-time notification sent and marked');
+          }
+        } catch (error) {
+          console.error('❌ Real-time notification error:', error);
+        }
+      }
+    }
   }
 });
 
-console.log('✅ Manual attendance listener active!');
+// ==================== HEALTH CHECK ENDPOINT ====================
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-// Keep the process alive and handle graceful shutdown
+app.use(express.json());
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'notification-server',
+    timestamp: new Date().toISOString(),
+    processedMessages: processedMessages.size,
+    firebaseConnected: true
+  });
+});
+
+app.post('/send-test-notification', async (req, res) => {
+  try {
+    const { studentId, message } = req.body;
+    
+    if (!studentId) {
+      return res.status(400).json({ error: 'studentId is required' });
+    }
+    
+    console.log('🧪 Test notification requested for student:', studentId);
+    
+    const expoPushToken = await findParentPushTokenByStudentId(studentId);
+    
+    if (!expoPushToken) {
+      return res.status(404).json({ error: 'No parent token found for this student' });
+    }
+    
+    const testMessage = message || 'This is a test notification from the server';
+    const notificationData = {
+      type: 'test_notification',
+      studentId: studentId,
+      timestamp: Date.now(),
+      test: true
+    };
+    
+    const sent = await sendExpoPushNotification(
+      expoPushToken, 
+      '🧪 Test Notification', 
+      testMessage, 
+      notificationData
+    );
+    
+    if (sent) {
+      res.json({ success: true, message: 'Test notification sent' });
+    } else {
+      res.status(500).json({ error: 'Failed to send notification' });
+    }
+    
+  } catch (error) {
+    console.error('❌ Test notification error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`🏥 Health check server running on port ${PORT}`);
+  console.log(`📊 Health endpoint: http://localhost:${PORT}/health`);
+  console.log(`🧪 Test endpoint: POST http://localhost:${PORT}/send-test-notification`);
+});
+
+// ==================== STARTUP LOGS ====================
+console.log('\n========================================');
+console.log('🔔 NOTIFICATION SERVER STARTED');
+console.log('========================================');
+console.log('✅ Teacher message listener: ACTIVE');
+console.log('✅ Real-time monitor: ACTIVE');
+console.log('✅ Health check server: ACTIVE');
+console.log('✅ Ready to send push notifications!');
+console.log('========================================\n');
+
+// ==================== GRACEFUL SHUTDOWN ====================
 process.on('SIGINT', () => {
-  console.log('\n🛑 Server shutting down...');
-  process.exit();
+  console.log('\n🛑 Server shutting down gracefully...');
+  console.log(`📊 Total processed messages: ${processedMessages.size}`);
+  process.exit(0);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('⚠️ Uncaught exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ Unhandled rejection at:', promise, 'reason:', reason);
 });

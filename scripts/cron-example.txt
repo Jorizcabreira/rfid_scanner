@@ -1,0 +1,11 @@
+// scripts/cron-example.txt
+// Example cron job entry to run the noon alert script every day at 12:00 nn
+// Make sure to use the correct path to your Node.js and project directory
+
+# Edit your crontab with: crontab -e
+# Add the following line (adjust the path as needed):
+
+0 12 * * * /usr/bin/node /path/to/your/project/scripts/sendNoonAlert.js >> /path/to/your/project/scripts/noon_alert.log 2>&1
+
+# This will run the script every day at 12:00 nn and log output to noon_alert.log
+# Make sure your server is running and has access to the internet and your Firebase credentials.

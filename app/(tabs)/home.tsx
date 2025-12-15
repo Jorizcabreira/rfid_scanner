@@ -1,15 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { get, off, onValue, ref, remove, update } from 'firebase/database';
+import { get, off, onValue, ref, update } from 'firebase/database';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Animated,
   Image,
-  Linking,
   Modal,
   Platform,
   RefreshControl,
@@ -273,198 +272,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ searchParams }) => {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // ==================== NOTIFICATION FUNCTIONS ====================
-  const registerForPushNotificationsAsync = useCallback(async () => {
-    if (!Device.isDevice) {
-      console.log('Must use physical device for Push Notifications');
-      return;
-    }
-
-    try {
-      console.log('🔔 Starting push notification registration...');
-
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-
-      if (existingStatus !== 'granted') {
-        console.log('Requesting notification permissions...');
-        
-        const { status } = await Notifications.requestPermissionsAsync({
-          ios: {
-            allowAlert: true,
-            allowBadge: true,
-            allowSound: true,
-            allowCriticalAlerts: true,
-          },
-          android: {
-            allowAlert: true,
-            allowBadge: true,
-            allowSound: true,
-          },
-        });
-        finalStatus = status;
-        console.log('Notification permission status:', finalStatus);
-      }
-
-      if (finalStatus !== 'granted') {
-        console.log('❌ Notification permission not granted');
-        return;
-      }
-
-      console.log('✅ Notification permission granted');
-
-      try {
-        const token = (await Notifications.getExpoPushTokenAsync()).data;
-        console.log('📱 Expo Push Token:', token);
-        
-        if (user) {
-          const pushTokenData = {
-            token: token,
-            platform: Platform.OS,
-            deviceId: Device.modelName || 'unknown',
-            createdAt: Date.now(),
-            updatedAt: Date.now()
-          };
-
-          const userPushTokenRef = ref(database, `users/${user.uid}/pushToken`);
-          await update(userPushTokenRef, pushTokenData);
-          
-          console.log('✅ Push token saved to Firebase');
-        }
-      } catch (tokenError) {
-        console.warn('⚠️ Expo push token error:', tokenError);
-      }
-
-    } catch (error) {
-      console.error('❌ Error configuring push notifications:', error);
-    }
-  }, [user]);
-
-  async function sendPushNotification(title: string, body: string, data: any = {}, isUrgent: boolean = false, category: string = 'default') {
-    try {
-      console.log('🔔 Sending notification:', title);
-
-      const notificationId = `${data.type}-${data.studentId}-${Date.now()}`;
-      data.notificationId = notificationId;
-
-      if (processedNotificationsRef.current.has(notificationId)) {
-        console.log('🔄 Notification already processed, skipping:', notificationId);
-        return null;
-      }
-
-      const scheduledNotificationId = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: title,
-          body: body,
-          data: data,
-          sound: true,
-          badge: data.badge || 1,
-        },
-        trigger: null,
-      });
-
-      processedNotificationsRef.current.add(notificationId);
-      
-      if (processedNotificationsRef.current.size > 100) {
-        const array = Array.from(processedNotificationsRef.current);
-        processedNotificationsRef.current = new Set(array.slice(-50));
-      }
-
-      console.log('✅ Notification sent successfully');
-      
-      return scheduledNotificationId;
-
-    } catch (error) {
-      console.error('❌ Error sending notification:', error);
-      throw error;
-    }
-  }
-
-  const handleNotificationResponse = useCallback(async (response: Notifications.NotificationResponse) => {
-    console.log('👆 Notification response received:', response);
-    const data = response.notification.request.content.data as any;
-    const actionIdentifier = response.actionIdentifier;
-    
-    if (data.notificationId) {
-      processedNotificationsRef.current.add(data.notificationId as string);
-    }
-    
-    if (actionIdentifier === 'CONFIRM_PICKUP') {
-      console.log('✅ User confirmed pickup via notification action button');
-      
-      if (student && data.studentRfid) {
-        try {
-          const studentFullName = `${student.firstName} ${student.lastName || ''}`.trim();
-          const guardianName = getGuardianName();
-          const today = new Date();
-          const todayDate = data.pickupDate || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-          const pickupRef = ref(database, `pickups/${todayDate}/${data.studentRfid}`);
-          
-          console.log('📝 Recording manual pickup confirmation...');
-          
-          const manualConfirmation: ManualPickupConfirmation = {
-            confirmed: true,
-            confirmationTime: Date.now(),
-            reason: 'forgot_rfid_card',
-            notes: 'Parent confirmed via notification - forgot to scan RFID at pickup',
-            requiresAdminVerification: true,
-            confirmedViaNotification: true
-          };
-          
-          await update(pickupRef, {
-            status: "Pending Verification",
-            parentName: guardianName,
-            parentRfid: "manual_confirmation_pending",
-            timeOut: Date.now(),
-            manualConfirmation: manualConfirmation,
-            reminderSent: true
-          });
-          
-          await sendPushNotification(
-            '⏳ Pickup Confirmation Received',
-            `Thank you! Your pickup confirmation for ${studentFullName} is pending admin verification.`,
-            {
-              type: 'pickup_confirmation_received',
-              studentId: student.id,
-              studentName: studentFullName,
-              status: 'pending_verification',
-              timestamp: Date.now(),
-            }
-          );
-          
-          addRecentActivity({
-            type: 'pickup',
-            message: `✅ PICKUP CONFIRMED: ${guardianName} confirmed pickup of ${studentFullName} (pending admin approval)`,
-            timestamp: Date.now(),
-            studentName: studentFullName,
-          });
-          
-          reminderAlertShownRef.current = true;
-          dailyReminderCheckRef.current = true;
-          
-        } catch (error) {
-          console.error('❌ Error processing manual pickup confirmation:', error);
-        }
-      }
-    } 
-    else if (actionIdentifier === 'NOT_YET') {
-      console.log('❌ User said not picked up yet');
-      reminderAlertShownRef.current = false;
-      dailyReminderCheckRef.current = false;
-    }
-    else if (actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
-      console.log('📱 User tapped notification body');
-      
-      if (data.type === 'teacher_message') {
-        setTimeout(() => {
-          router.push('/message');
-        }, 300);
-        return;
-      }
-    }
-  }, [student]);
-
-  // ==================== UTILITY FUNCTIONS ====================
+  // ==================== UTILITY FUNCTIONS - DECLARE FIRST ====================
   const normalizeGuardians = useCallback((guardians: any): Guardian[] => {
     if (!guardians) return [];
     if (Array.isArray(guardians)) return guardians;
@@ -578,6 +386,261 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ searchParams }) => {
     return parentInfo?.firstName || 'Parent';
   };
 
+  const getStatusColor = (status: string): string => {
+    switch (status) {
+      case 'Present': return COLORS.success;
+      case 'Late': return COLORS.warning;
+      case 'Absent': return COLORS.error;
+      default: return COLORS.gray500;
+    }
+  };
+
+  const getStatusIcon = (status: string): keyof typeof Ionicons.glyphMap => {
+    switch (status) {
+      case 'Present': return 'checkmark-circle';
+      case 'Late': return 'time';
+      case 'Absent': return 'close-circle';
+      default: return 'help-circle';
+    }
+  };
+
+  const getPickupStatusDisplay = () => {
+    if (!pickupData) {
+      return {
+        status: 'Waiting',
+        icon: 'time-outline' as keyof typeof Ionicons.glyphMap,
+        message: 'Not picked up yet',
+        color: COLORS.gray500
+      };
+    }
+
+    if (pickupData.status === 'Pending Verification' || 
+        (pickupData.parentRfid === 'manual_confirmation_pending' && pickupData.status !== 'Picked Up')) {
+      return {
+        status: 'Pending Verification',
+        icon: 'time' as keyof typeof Ionicons.glyphMap,
+        message: `By: ${pickupData.parentName} (Awaiting Admin Approval)`,
+        color: COLORS.warning
+      };
+    }
+
+    if (pickupData.status === 'Picked Up' && pickupData.parentRfid === 'manual_confirmation') {
+      return {
+        status: 'Picked Up (Manual)',
+        icon: 'checkmark-done' as keyof typeof Ionicons.glyphMap,
+        message: `By: ${pickupData.parentName} (Manual Confirmation)`,
+        color: '#8b5cf6'
+      };
+    }
+
+    if (pickupData.status === 'Picked Up' && pickupData.parentRfid && 
+        pickupData.parentRfid !== 'manual_confirmation_pending' && 
+        pickupData.parentRfid !== 'manual_confirmation') {
+      return {
+        status: 'Picked Up',
+        icon: 'checkmark-circle' as keyof typeof Ionicons.glyphMap,
+        message: `By: ${pickupData.parentName}`,
+        color: COLORS.success
+      };
+    }
+
+    return {
+      status: 'Waiting',
+      icon: 'time-outline' as keyof typeof Ionicons.glyphMap,
+      message: 'Waiting for RFID scan',
+      color: COLORS.warning
+    };
+  };
+
+  // ==================== FIREBASE SETUP ====================
+  const setupFirebaseListeners = useCallback((student: Student) => {
+    if (listenersSetupRef.current) {
+      return () => {};
+    }
+
+    if (!student.rfid) {
+      console.error('No RFID found for student:', student.id);
+      return () => {};
+    }
+
+    listenersSetupRef.current = true;
+    console.log('🎯 Setting up Firebase listeners for student:', student.firstName);
+
+    const today = new Date();
+    const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+    const attendanceRef = ref(database, `attendanceLogs/${student.rfid}`);
+    const todayAttendanceRef = ref(database, `attendanceLogs/${student.rfid}/${todayDate}`);
+    const pickupRef = ref(database, `pickups/${todayDate}/${student.rfid}`);
+
+    // Load initial data
+    Promise.all([
+      get(todayAttendanceRef),
+      get(pickupRef),
+      get(attendanceRef)
+    ]).then(([attendanceSnap, pickupSnap, monthlySnap]) => {
+      if (attendanceSnap.exists()) {
+        setTodayAttendance(attendanceSnap.val());
+      }
+      if (pickupSnap.exists()) {
+        setPickupData(pickupSnap.val());
+      }
+      if (monthlySnap.exists()) {
+        setMonthlyStats(calculateMonthlyStats(monthlySnap.val()));
+      }
+    });
+
+    // Set up real-time listeners
+    const monthlyListener = onValue(attendanceRef, snapshot => {
+      if (snapshot.exists()) {
+        setMonthlyStats(calculateMonthlyStats(snapshot.val()));
+      }
+    });
+
+    const todayListener = onValue(todayAttendanceRef, snapshot => {
+      const newData = snapshot.exists() ? snapshot.val() : null;
+      setTodayAttendance(newData);
+    });
+
+    const pickupListener = onValue(pickupRef, snapshot => {
+      const newPickup = snapshot.exists() ? snapshot.val() : null;
+      setPickupData(newPickup);
+    });
+
+    return () => {
+      off(attendanceRef, 'value', monthlyListener);
+      off(todayAttendanceRef, 'value', todayListener);
+      off(pickupRef, 'value', pickupListener);
+      listenersSetupRef.current = false;
+    };
+  }, [calculateMonthlyStats]);
+
+  // ==================== NOTIFICATION FUNCTIONS ====================
+  const registerForPushNotificationsAsync = useCallback(async () => {
+    if (!Device.isDevice) {
+      console.log('Must use physical device for Push Notifications');
+      return;
+    }
+
+    try {
+      console.log('🔔 Starting push notification registration...');
+
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      if (existingStatus !== 'granted') {
+        console.log('Requesting notification permissions...');
+        
+        const { status } = await Notifications.requestPermissionsAsync({
+          ios: {
+            allowAlert: true,
+            allowBadge: true,
+            allowSound: true,
+            allowCriticalAlerts: true,
+          },
+          android: {
+            allowAlert: true,
+            allowBadge: true,
+            allowSound: true,
+          },
+        });
+        finalStatus = status;
+        console.log('Notification permission status:', finalStatus);
+      }
+
+      if (finalStatus !== 'granted') {
+        console.log('❌ Notification permission not granted');
+        return;
+      }
+
+      console.log('✅ Notification permission granted');
+
+      try {
+        const token = (await Notifications.getExpoPushTokenAsync({
+          projectId: '15369961-bc79-4ea5-a604-b52f908a92ae'
+        })).data;
+        console.log('📱 Expo Push Token:', token.substring(0, 30) + '...');
+        
+        if (user) {
+          const pushTokenData = {
+            token: token,
+            platform: Platform.OS,
+            deviceId: Device.modelName || 'unknown',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          };
+
+          // Save token in multiple locations for redundancy
+          const userRef = ref(database, `users/${user.uid}`);
+          await update(userRef, {
+            expoPushToken: token,
+            pushToken: pushTokenData,
+            tokenUpdatedAt: Date.now()
+          });
+          
+          console.log('✅ Push token saved to Firebase');
+        }
+      } catch (tokenError) {
+        console.warn('⚠️ Expo push token error:', tokenError);
+      }
+
+    } catch (error) {
+      console.error('❌ Error configuring push notifications:', error);
+    }
+  }, [user]);
+
+  async function sendPushNotification(title: string, body: string, data: any = {}, isUrgent: boolean = false, category: string = 'default') {
+    try {
+      console.log('🔔 Sending notification:', title);
+
+      const notificationId = `${data.type}-${data.studentId}-${Date.now()}`;
+      data.notificationId = notificationId;
+
+      if (processedNotificationsRef.current.has(notificationId)) {
+        console.log('🔄 Notification already processed, skipping:', notificationId);
+        return null;
+      }
+
+      // Create notification content without channelId
+      const notificationContent: Notifications.NotificationContentInput = {
+        title: title,
+        body: body,
+        data: data,
+        sound: true,
+        badge: data.badge || 1,
+      };
+
+      // Add priority and channelId conditionally
+      if (Platform.OS === 'android') {
+        (notificationContent as any).priority = 'high';
+        (notificationContent as any).channelId = 'default';
+      } else {
+        // For iOS, use different approach
+        (notificationContent as any).priority = 'high';
+      }
+
+      const scheduledNotificationId = await Notifications.scheduleNotificationAsync({
+        content: notificationContent,
+        trigger: null,
+      });
+
+      processedNotificationsRef.current.add(notificationId);
+      
+      if (processedNotificationsRef.current.size > 100) {
+        const array = Array.from(processedNotificationsRef.current);
+        processedNotificationsRef.current = new Set(array.slice(-50));
+      }
+
+      console.log('✅ Notification sent successfully');
+      
+      return scheduledNotificationId;
+
+    } catch (error) {
+      console.error('❌ Error sending notification:', error);
+      throw error;
+    }
+  }
+
   const confirmManualPickup = useCallback(async (student: Student) => {
     const studentFullName = `${student.firstName} ${student.lastName || ''}`.trim();
     const guardianName = getGuardianName();
@@ -654,134 +717,139 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ searchParams }) => {
     );
   }, [addRecentActivity, getGuardianName, sendPushNotification]);
 
-  const getPickupStatusDisplay = () => {
-    if (!pickupData) {
-      return {
-        status: 'Waiting',
-        icon: 'time-outline' as keyof typeof Ionicons.glyphMap,
-        message: 'Not picked up yet',
-        color: COLORS.gray500
-      };
-    }
-
-    if (pickupData.status === 'Pending Verification' || 
-        (pickupData.parentRfid === 'manual_confirmation_pending' && pickupData.status !== 'Picked Up')) {
-      return {
-        status: 'Pending Verification',
-        icon: 'time' as keyof typeof Ionicons.glyphMap,
-        message: `By: ${pickupData.parentName} (Awaiting Admin Approval)`,
-        color: COLORS.warning
-      };
-    }
-
-    if (pickupData.status === 'Picked Up' && pickupData.parentRfid === 'manual_confirmation') {
-      return {
-        status: 'Picked Up (Manual)',
-        icon: 'checkmark-done' as keyof typeof Ionicons.glyphMap,
-        message: `By: ${pickupData.parentName} (Manual Confirmation)`,
-        color: '#8b5cf6'
-      };
-    }
-
-    if (pickupData.status === 'Picked Up' && pickupData.parentRfid && 
-        pickupData.parentRfid !== 'manual_confirmation_pending' && 
-        pickupData.parentRfid !== 'manual_confirmation') {
-      return {
-        status: 'Picked Up',
-        icon: 'checkmark-circle' as keyof typeof Ionicons.glyphMap,
-        message: `By: ${pickupData.parentName}`,
-        color: COLORS.success
-      };
-    }
-
-    return {
-      status: 'Waiting',
-      icon: 'time-outline' as keyof typeof Ionicons.glyphMap,
-      message: 'Waiting for RFID scan',
-      color: COLORS.warning
-    };
-  };
-
-  const getStatusColor = (status: string): string => {
-    switch (status) {
-      case 'Present': return COLORS.success;
-      case 'Late': return COLORS.warning;
-      case 'Absent': return COLORS.error;
-      default: return COLORS.gray500;
-    }
-  };
-
-  const getStatusIcon = (status: string): keyof typeof Ionicons.glyphMap => {
-    switch (status) {
-      case 'Present': return 'checkmark-circle';
-      case 'Late': return 'time';
-      case 'Absent': return 'close-circle';
-      default: return 'help-circle';
-    }
-  };
-
-  // ==================== FIREBASE SETUP ====================
-  const setupFirebaseListeners = useCallback((student: Student) => {
-    if (listenersSetupRef.current) {
-      return () => {};
-    }
-
-    if (!student.rfid) {
-      console.error('No RFID found for student:', student.id);
-      return () => {};
-    }
-
-    listenersSetupRef.current = true;
-    console.log('🎯 Setting up Firebase listeners for student:', student.firstName);
-
-    const today = new Date();
-    const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-
-    const attendanceRef = ref(database, `attendanceLogs/${student.rfid}`);
-    const todayAttendanceRef = ref(database, `attendanceLogs/${student.rfid}/${todayDate}`);
-    const pickupRef = ref(database, `pickups/${todayDate}/${student.rfid}`);
-
-    // Load initial data
-    Promise.all([
-      get(todayAttendanceRef),
-      get(pickupRef),
-      get(attendanceRef)
-    ]).then(([attendanceSnap, pickupSnap, monthlySnap]) => {
-      if (attendanceSnap.exists()) {
-        setTodayAttendance(attendanceSnap.val());
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      console.log('🔄 Refreshing home screen data...');
+      
+      if (user) {
+        const userRef = ref(database, `users/${user.uid}`);
+        const userSnapshot = await get(userRef);
+        if (userSnapshot.exists()) {
+          const userData = userSnapshot.val() as ParentInfo;
+          setParentInfo({ ...userData, userId: user.uid, email: user.email || undefined });
+        }
       }
-      if (pickupSnap.exists()) {
-        setPickupData(pickupSnap.val());
+      
+      if (student?.rfid) {
+        const today = new Date();
+        const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        
+        const todayAttendanceRef = ref(database, `attendanceLogs/${student.rfid}/${todayDate}`);
+        const attendanceSnap = await get(todayAttendanceRef);
+        if (attendanceSnap.exists()) {
+          setTodayAttendance(attendanceSnap.val());
+        }
+        
+        const pickupRef = ref(database, `pickups/${todayDate}/${student.rfid}`);
+        const pickupSnap = await get(pickupRef);
+        if (pickupSnap.exists()) {
+          setPickupData(pickupSnap.val());
+        }
+        
+        const attendanceRef = ref(database, `attendanceLogs/${student.rfid}`);
+        const monthlySnap = await get(attendanceRef);
+        if (monthlySnap.exists()) {
+          setMonthlyStats(calculateMonthlyStats(monthlySnap.val()));
+        }
       }
-      if (monthlySnap.exists()) {
-        setMonthlyStats(calculateMonthlyStats(monthlySnap.val()));
+      
+    } catch (error) {
+      console.error('❌ Error refreshing data:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [user, student, calculateMonthlyStats]);
+
+  const handleNotificationResponse = useCallback(async (response: Notifications.NotificationResponse) => {
+    console.log('👆 Notification response received:', response);
+    const data = response.notification.request.content.data as any;
+    const actionIdentifier = response.actionIdentifier;
+    
+    if (data.notificationId) {
+      processedNotificationsRef.current.add(data.notificationId as string);
+    }
+    
+    if (actionIdentifier === 'CONFIRM_PICKUP') {
+      console.log('✅ User confirmed pickup via notification action button');
+      
+      if (student && data.studentRfid) {
+        try {
+          const studentFullName = `${student.firstName} ${student.lastName || ''}`.trim();
+          const guardianName = getGuardianName();
+          const today = new Date();
+          const todayDate = data.pickupDate || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+          const pickupRef = ref(database, `pickups/${todayDate}/${data.studentRfid}`);
+          
+          console.log('📝 Recording manual pickup confirmation...');
+          
+          const manualConfirmation: ManualPickupConfirmation = {
+            confirmed: true,
+            confirmationTime: Date.now(),
+            reason: 'forgot_rfid_card',
+            notes: 'Parent confirmed via notification - forgot to scan RFID at pickup',
+            requiresAdminVerification: true,
+            confirmedViaNotification: true
+          };
+          
+          await update(pickupRef, {
+            status: "Pending Verification",
+            parentName: guardianName,
+            parentRfid: "manual_confirmation_pending",
+            timeOut: Date.now(),
+            manualConfirmation: manualConfirmation,
+            reminderSent: true
+          });
+          
+          await sendPushNotification(
+            '⏳ Pickup Confirmation Received',
+            `Thank you! Your pickup confirmation for ${studentFullName} is pending admin verification.`,
+            {
+              type: 'pickup_confirmation_received',
+              studentId: student.id,
+              studentName: studentFullName,
+              status: 'pending_verification',
+              timestamp: Date.now(),
+            }
+          );
+          
+          addRecentActivity({
+            type: 'pickup',
+            message: `✅ PICKUP CONFIRMED: ${guardianName} confirmed pickup of ${studentFullName} (pending admin approval)`,
+            timestamp: Date.now(),
+            studentName: studentFullName,
+          });
+          
+          reminderAlertShownRef.current = true;
+          dailyReminderCheckRef.current = true;
+          
+        } catch (error) {
+          console.error('❌ Error processing manual pickup confirmation:', error);
+        }
       }
-    });
-
-    // Set up real-time listeners
-    const monthlyListener = onValue(attendanceRef, snapshot => {
-      if (snapshot.exists()) {
-        setMonthlyStats(calculateMonthlyStats(snapshot.val()));
+    } 
+    else if (actionIdentifier === 'NOT_YET') {
+      console.log('❌ User said not picked up yet');
+      reminderAlertShownRef.current = false;
+      dailyReminderCheckRef.current = false;
+    }
+    else if (actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
+      console.log('📱 User tapped notification body');
+      
+      if (data.type === 'teacher_message') {
+        setTimeout(() => {
+          router.push('/message');
+        }, 300);
+        return;
       }
-    });
-
-    const todayListener = onValue(todayAttendanceRef, snapshot => {
-      const newData = snapshot.exists() ? snapshot.val() : null;
-      setTodayAttendance(newData);
-    });
-
-    const pickupListener = onValue(pickupRef, snapshot => {
-      const newPickup = snapshot.exists() ? snapshot.val() : null;
-      setPickupData(newPickup);
-    });
-
-    return () => {
-      off(attendanceRef, 'value', monthlyListener);
-      off(todayAttendanceRef, 'value', todayListener);
-      off(pickupRef, 'value', pickupListener);
-      listenersSetupRef.current = false;
-    };
-  }, [calculateMonthlyStats]);
+      
+      // Handle other notification types
+      if (data.type === 'attendance_scan' || data.type === 'manual_attendance') {
+        // Refresh home screen data
+        onRefresh();
+      }
+    }
+  }, [student, router, addRecentActivity, getGuardianName, sendPushNotification, onRefresh]);
 
   // ==================== NOTIFICATION SETUP ====================
   useEffect(() => {
@@ -791,6 +859,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ searchParams }) => {
 
     notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
       console.log('📱 Notification received:', notification.request.content.title);
+      
+      // Handle foreground notifications
+      const data = notification.request.content.data as any;
+      if (data.type === 'teacher_message') {
+        // Update badge count
+        setUnreadMessageCount(prev => prev + 1);
+      }
     });
 
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
@@ -806,6 +881,26 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ searchParams }) => {
       }
     };
   }, [registerForPushNotificationsAsync, handleNotificationResponse]);
+
+  // Check for initial notification when app starts
+  useEffect(() => {
+    const checkInitialNotification = async () => {
+      const lastNotification = await Notifications.getLastNotificationResponseAsync();
+      if (lastNotification) {
+        console.log('📱 App opened from notification:', lastNotification.notification.request.content.data);
+        const data = lastNotification.notification.request.content.data as any;
+        
+        if (data.type === 'teacher_message') {
+          // Navigate to messages screen
+          setTimeout(() => {
+            router.push('/message');
+          }, 300);
+        }
+      }
+    };
+    
+    checkInitialNotification();
+  }, []);
 
   // Auth state listener
   useEffect(() => {
@@ -971,50 +1066,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ searchParams }) => {
     setShowPickupDetails(false);
   };
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      console.log('🔄 Refreshing home screen data...');
-      
-      if (user) {
-        const userRef = ref(database, `users/${user.uid}`);
-        const userSnapshot = await get(userRef);
-        if (userSnapshot.exists()) {
-          const userData = userSnapshot.val() as ParentInfo;
-          setParentInfo({ ...userData, userId: user.uid, email: user.email || undefined });
-        }
-      }
-      
-      if (student?.rfid) {
-        const today = new Date();
-        const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        
-        const todayAttendanceRef = ref(database, `attendanceLogs/${student.rfid}/${todayDate}`);
-        const attendanceSnap = await get(todayAttendanceRef);
-        if (attendanceSnap.exists()) {
-          setTodayAttendance(attendanceSnap.val());
-        }
-        
-        const pickupRef = ref(database, `pickups/${todayDate}/${student.rfid}`);
-        const pickupSnap = await get(pickupRef);
-        if (pickupSnap.exists()) {
-          setPickupData(pickupSnap.val());
-        }
-        
-        const attendanceRef = ref(database, `attendanceLogs/${student.rfid}`);
-        const monthlySnap = await get(attendanceRef);
-        if (monthlySnap.exists()) {
-          setMonthlyStats(calculateMonthlyStats(monthlySnap.val()));
-        }
-      }
-      
-    } catch (error) {
-      console.error('❌ Error refreshing data:', error);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [user, student, calculateMonthlyStats]);
-
   // --- RENDER LOGIC ---
   if (loading) {
     return (
@@ -1109,7 +1160,21 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ searchParams }) => {
               <Text style={styles.parentName}>{getGuardianName()}</Text>
             </View>
           </View>
-          {/* Removed header icon (chat/message icon) */}
+          
+          {/* Message Icon with Badge */}
+          <TouchableOpacity 
+            style={styles.headerIconButton}
+            onPress={handleMessagePress}
+          >
+            <Ionicons name="chatbubble" size={24} color={COLORS.white} />
+            {unreadMessageCount > 0 && (
+              <View style={styles.messageBadge}>
+                <Text style={styles.badgeText}>
+                  {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
       </LinearGradient>
 
@@ -1282,26 +1347,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ searchParams }) => {
                 <Text style={styles.actionText}>Confirm Pickup</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/message')}>
-                <View style={[styles.actionIcon, { backgroundColor: 'rgba(25, 153, 232, 0.1)' }]}>
-                  <Ionicons name="chatbubble" size={24} color={COLORS.primary} />
-                </View>
-                <Text style={styles.actionText}>Messages</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/profile')}>
-                <View style={[styles.actionIcon, { backgroundColor: 'rgba(139, 92, 246, 0.1)' }]}>
-                  <Ionicons name="person" size={24} color="#8b5cf6" />
-                </View>
-                <Text style={styles.actionText}>Profile</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.actionButton} onPress={() => router.push('./help')}>
-                <View style={[styles.actionIcon, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
-                  <Ionicons name="help-circle" size={24} color={COLORS.warning} />
-                </View>
-                <Text style={styles.actionText}>Help</Text>
-              </TouchableOpacity>
             </View>
           </View>
 
@@ -1608,17 +1653,13 @@ const styles = StyleSheet.create({
     fontWeight: '700', 
     color: COLORS.white,
   },
-  headerButtons: { 
-    flexDirection: 'row', 
-    alignItems: 'center',
-  },
-  iconButton: { 
+  headerIconButton: { 
     padding: SPACING.sm, 
     borderRadius: BORDER_RADIUS.md,
     backgroundColor: 'rgba(255,255,255,0.2)',
     position: 'relative',
   },
-  badge: {
+  messageBadge: {
     position: 'absolute',
     top: -4,
     right: -4,
@@ -1807,11 +1848,32 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: '47%',
     ...SHADOWS.sm,
+    position: 'relative',
   },
   actionIcon: {
     padding: SPACING.sm,
     borderRadius: BORDER_RADIUS.sm,
     marginBottom: SPACING.sm,
+    position: 'relative',
+  },
+  floatingBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: COLORS.error,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    borderWidth: 2,
+    borderColor: COLORS.white,
+  },
+  floatingBadgeText: {
+    color: COLORS.white,
+    fontSize: 10,
+    fontWeight: '800',
   },
   actionText: {
     ...TYPOGRAPHY.sm,

@@ -1,3 +1,4 @@
+// ProfileScreen.tsx (Updated)
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -6,21 +7,24 @@ import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 
 import { off, onValue, ref, update } from 'firebase/database';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, database } from '../firebaseConfig';
 
-// Design System Constants
+// Design System Constants (Same as before)
 const COLORS = {
   primary: '#1999e8',
   primaryDark: '#1488d0',
@@ -139,6 +143,19 @@ const ProfileScreen = () => {
   const [newPassword, setNewPassword] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  // State for editable fields
+  const [editableInfo, setEditableInfo] = useState({
+    firstName: '',
+    lastName: '',
+    address: '',
+    contactNumber: '',
+    email: '',
+  });
 
   const handleChangePhoto = async () => {
     try {
@@ -255,6 +272,110 @@ const ProfileScreen = () => {
     }
   };
 
+  // List of non-editable fields
+  const NON_EDITABLE_FIELDS = ['rfid', 'email', 'uid'];
+
+  const isEditable = (field: string): boolean => {
+    return !NON_EDITABLE_FIELDS.includes(field);
+  };
+
+  const startEditing = (field: string, currentValue: string) => {
+    if (!isEditable(field)) {
+      Alert.alert(
+        "Cannot Edit", 
+        "This field cannot be edited. Please contact support if you need to change this information."
+      );
+      return;
+    }
+    setEditingField(field);
+    setEditValue(currentValue);
+  };
+
+  const saveEdit = async () => {
+    if (!editingField || !editValue.trim()) {
+      Alert.alert("Error", "Field cannot be empty.");
+      return;
+    }
+
+    // Double-check if field is editable (security)
+    if (!isEditable(editingField)) {
+      Alert.alert("Error", "This field cannot be edited.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert("Error", "You must be logged in to update your profile.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const updates: any = {};
+      
+      // Update user info in Firebase
+      if (guardianData) {
+        // If user is a guardian, update guardian data
+        const studentsRef = ref(database, 'students');
+        const snapshot = await new Promise<any>(resolve => 
+          onValue(studentsRef, resolve, { onlyOnce: true })
+        );
+        // Cast snapshot to DataSnapshot type
+        const dataSnapshot = snapshot as import('firebase/database').DataSnapshot;
+        if (dataSnapshot.exists()) {
+          const students = dataSnapshot.val();
+          for (const studentId in students) {
+            const student = students[studentId];
+            const guardians = student.guardians;
+            if (guardians) {
+              const guardiansArray = Array.isArray(guardians) ? guardians : Object.values(guardians);
+              const guardianIndex = guardiansArray.findIndex(
+                (guardian: Guardian) => guardian.email.toLowerCase() === user.email!.toLowerCase()
+              );
+              
+              if (guardianIndex !== -1) {
+                // Update guardian data in student's guardians
+                const guardianKey = Array.isArray(guardians) ? guardianIndex : Object.keys(guardians)[guardianIndex];
+                const path = Array.isArray(guardians) 
+                  ? `students/${studentId}/guardians/${guardianIndex}/${editingField}`
+                  : `students/${studentId}/guardians/${guardianKey}/${editingField}`;
+                
+                updates[path] = editValue;
+                break;
+              }
+            }
+          }
+        }
+      } else {
+        // Update regular user info
+        updates[`users/${user.uid}/${editingField}`] = editValue;
+      }
+
+      await update(ref(database), updates);
+      
+      // Update local state
+      if (guardianData) {
+        setGuardianData(prev => prev ? { ...prev, [editingField]: editValue } : null);
+      } else if (userInfo) {
+        setUserInfo(prev => prev ? { ...prev, [editingField]: editValue } : null);
+      }
+      
+      Alert.alert("Success", "Profile updated successfully!");
+      setEditingField(null);
+      setEditValue('');
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      Alert.alert("Error", "Failed to update profile. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingField(null);
+    setEditValue('');
+  };
+
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) {
@@ -269,6 +390,14 @@ const ProfileScreen = () => {
       if (snapshot.exists()) {
         const userData: UserInfo = snapshot.val();
         setUserInfo(userData);
+        // Initialize editable info
+        setEditableInfo({
+          firstName: userData.firstName || '',
+          lastName: userData.lastName || '',
+          address: userData.address || '',
+          contactNumber: userData.contactNumber || '',
+          email: userData.email || user.email || '',
+        });
       } else {
         setUserInfo(null);
       }
@@ -286,7 +415,7 @@ const ProfileScreen = () => {
             const guardiansArray = Array.isArray(guardians) ? guardians : Object.values(guardians);
             foundGuardian = guardiansArray.find(
               (guardian: Guardian) => guardian.email.toLowerCase() === user.email!.toLowerCase()
-            );
+            ) as Guardian;
             if (foundGuardian) {
               setGuardianData(foundGuardian);
               break;
@@ -325,6 +454,21 @@ const ProfileScreen = () => {
   const getDisplayAddress = () => {
     if (guardianData?.address) return guardianData.address;
     return userInfo?.address || 'N/A';
+  };
+
+  // Get field label for editing modal
+  const getFieldLabel = (field: string) => {
+    const labels: { [key: string]: string } = {
+      'firstName': 'First Name',
+      'lastName': 'Last Name',
+      'name': 'Full Name',
+      'email': 'Email Address',
+      'contact': 'Contact Number',
+      'contactNumber': 'Contact Number',
+      'address': 'Address',
+      'relationship': 'Relationship',
+    };
+    return labels[field] || field;
   };
 
   if (loading) {
@@ -371,6 +515,12 @@ const ProfileScreen = () => {
                     <Text style={styles.roleLabel}>Parent/Guardian</Text>
                   </View>
                 </View>
+                <TouchableOpacity 
+                  style={styles.editHeaderButton}
+                  onPress={() => setIsEditing(!isEditing)}
+                >
+                  <Ionicons name={isEditing ? "checkmark" : "create-outline"} size={20} color={COLORS.white} />
+                </TouchableOpacity>
               </View>
             </LinearGradient>
 
@@ -378,8 +528,80 @@ const ProfileScreen = () => {
             <View style={styles.mainContent}>
               {/* Info Card */}
               <View style={styles.infoCard}>
-                <Text style={styles.sectionTitle}>Personal Information</Text>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Personal Information</Text>
+                  {isEditing && (
+                    <TouchableOpacity 
+                      style={styles.editAllButton}
+                      onPress={() => {
+                        Alert.alert("Edit Mode", "Tap on any editable field to edit it. Note: RFID, Email, and User ID cannot be edited.");
+                      }}
+                    >
+                      <Text style={styles.editAllButtonText}>Edit Mode</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
                 
+                {/* Full Name - Only for regular users */}
+                {!guardianData && (userInfo?.firstName || userInfo?.lastName) && (
+                  <View style={styles.detailItem}>
+                    <View style={styles.detailIconContainer}>
+                      <Ionicons name="person-outline" size={18} color={COLORS.primary} />
+                    </View>
+                    <View style={styles.detailTextContainer}>
+                      <Text style={styles.detailLabel}>Full Name</Text>
+                      <Text style={styles.detailValue}>
+                        {`${userInfo.firstName || ''} ${userInfo.lastName || ''}`.trim()}
+                      </Text>
+                    </View>
+                    {isEditing && (
+                      <TouchableOpacity 
+                        style={styles.editButton}
+                        onPress={() => {
+                          Alert.alert(
+                            "Edit Name",
+                            "Which name do you want to edit?",
+                            [
+                              {
+                                text: "First Name",
+                                onPress: () => startEditing('firstName', userInfo.firstName || '')
+                              },
+                              {
+                                text: "Last Name",
+                                onPress: () => startEditing('lastName', userInfo.lastName || '')
+                              },
+                              { text: "Cancel", style: "cancel" }
+                            ]
+                          );
+                        }}
+                      >
+                        <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+
+                {/* Guardian Name */}
+                {guardianData?.name && (
+                  <View style={styles.detailItem}>
+                    <View style={styles.detailIconContainer}>
+                      <Ionicons name="person-outline" size={18} color={COLORS.primary} />
+                    </View>
+                    <View style={styles.detailTextContainer}>
+                      <Text style={styles.detailLabel}>Full Name</Text>
+                      <Text style={styles.detailValue}>{guardianData.name}</Text>
+                    </View>
+                    {isEditing && (
+                      <TouchableOpacity 
+                        style={styles.editButton}
+                        onPress={() => startEditing('name', guardianData.name)}
+                      >
+                        <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+
                 <View style={styles.detailItem}>
                   <View style={styles.detailIconContainer}>
                     <Ionicons name="mail-outline" size={18} color={COLORS.primary} />
@@ -387,7 +609,9 @@ const ProfileScreen = () => {
                   <View style={styles.detailTextContainer}>
                     <Text style={styles.detailLabel}>Email Address</Text>
                     <Text style={styles.detailValue}>{getDisplayEmail()}</Text>
+                    <Text style={styles.readOnlyNote}>Cannot be edited</Text>
                   </View>
+                  {/* No edit button for email */}
                 </View>
 
                 <View style={styles.detailItem}>
@@ -398,6 +622,17 @@ const ProfileScreen = () => {
                     <Text style={styles.detailLabel}>Contact Number</Text>
                     <Text style={styles.detailValue}>{getDisplayContact()}</Text>
                   </View>
+                  {isEditing && (
+                    <TouchableOpacity 
+                      style={styles.editButton}
+                      onPress={() => startEditing(
+                        guardianData ? 'contact' : 'contactNumber',
+                        getDisplayContact()
+                      )}
+                    >
+                      <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 <View style={styles.detailItem}>
@@ -408,6 +643,14 @@ const ProfileScreen = () => {
                     <Text style={styles.detailLabel}>Address</Text>
                     <Text style={styles.detailValue}>{getDisplayAddress()}</Text>
                   </View>
+                  {isEditing && (
+                    <TouchableOpacity 
+                      style={styles.editButton}
+                      onPress={() => startEditing('address', getDisplayAddress())}
+                    >
+                      <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 {guardianData?.rfid && (
@@ -418,7 +661,29 @@ const ProfileScreen = () => {
                     <View style={styles.detailTextContainer}>
                       <Text style={styles.detailLabel}>Guardian RFID</Text>
                       <Text style={styles.detailValue}>{guardianData.rfid}</Text>
+                      <Text style={styles.readOnlyNote}>Cannot be edited</Text>
                     </View>
+                    {/* No edit button for RFID */}
+                  </View>
+                )}
+
+                {guardianData?.relationship && (
+                  <View style={styles.detailItem}>
+                    <View style={styles.detailIconContainer}>
+                      <Ionicons name="people-outline" size={18} color={COLORS.primary} />
+                    </View>
+                    <View style={styles.detailTextContainer}>
+                      <Text style={styles.detailLabel}>Relationship</Text>
+                      <Text style={styles.detailValue}>{guardianData.relationship}</Text>
+                    </View>
+                    {isEditing && (
+                      <TouchableOpacity 
+                        style={styles.editButton}
+                        onPress={() => startEditing('relationship', guardianData.relationship || '')}
+                      >
+                        <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 )}
               </View>
@@ -432,6 +697,9 @@ const ProfileScreen = () => {
                   </View>
                   <Text style={styles.guardianText}>
                     You are registered as a guardian and linked to student records in the system.
+                  </Text>
+                  <Text style={styles.guardianNote}>
+                    Note: RFID and Email cannot be edited for security reasons.
                   </Text>
                   {guardianData.relationship && (
                     <View style={styles.relationshipBadge}>
@@ -537,6 +805,7 @@ const ProfileScreen = () => {
                   <Text style={styles.userIdValue} numberOfLines={1} ellipsizeMode="middle">
                     {auth.currentUser.uid}
                   </Text>
+                  <Text style={styles.readOnlyNote}>Unique identifier - cannot be edited</Text>
                 </View>
               )}
             </View>
@@ -556,6 +825,68 @@ const ProfileScreen = () => {
           </View>
         )}
       </ScrollView>
+
+      {/* Edit Modal */}
+      <Modal
+        visible={!!editingField}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>
+                  Edit {getFieldLabel(editingField || '')}
+                </Text>
+                <TouchableOpacity onPress={cancelEdit}>
+                  <Ionicons name="close" size={24} color={COLORS.gray500} />
+                </TouchableOpacity>
+              </View>
+              
+              <TextInput
+                style={styles.modalInput}
+                value={editValue}
+                onChangeText={setEditValue}
+                placeholder={`Enter ${getFieldLabel(editingField || '')}`}
+                placeholderTextColor={COLORS.gray400}
+                autoFocus
+                multiline={editingField === 'address'}
+                numberOfLines={editingField === 'address' ? 3 : 1}
+              />
+              
+              <View style={styles.modalButtons}>
+                <TouchableOpacity 
+                  style={styles.modalCancelButton}
+                  onPress={cancelEdit}
+                  disabled={isSaving}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[
+                    styles.modalSaveButton,
+                    (!editValue.trim() || isSaving) && styles.modalSaveButtonDisabled
+                  ]}
+                  onPress={saveEdit}
+                  disabled={!editValue.trim() || isSaving}
+                >
+                  {isSaving ? (
+                    <ActivityIndicator size="small" color={COLORS.white} />
+                  ) : (
+                    <Text style={styles.modalSaveButtonText}>Save</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -651,6 +982,15 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontWeight: '600',
   },
+  editHeaderButton: {
+    width: 40,
+    height: 40,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: SPACING.sm,
+  },
   
   // Main Content
   mainContent: {
@@ -696,12 +1036,28 @@ const styles = StyleSheet.create({
     borderColor: COLORS.gray200,
   },
   
-  // Section Titles
+  // Section Headers
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+  },
   sectionTitle: {
     ...TYPOGRAPHY.lg,
     fontWeight: '700',
     color: COLORS.gray800,
-    marginBottom: SPACING.lg,
+  },
+  editAllButton: {
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.sm,
+  },
+  editAllButtonText: {
+    ...TYPOGRAPHY.xs,
+    color: COLORS.white,
+    fontWeight: '600',
   },
   
   // Detail Items
@@ -736,6 +1092,21 @@ const styles = StyleSheet.create({
     color: COLORS.gray800,
     fontWeight: '500',
   },
+  readOnlyNote: {
+    ...TYPOGRAPHY.xs,
+    color: COLORS.gray500,
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  editButton: {
+    width: 32,
+    height: 32,
+    borderRadius: BORDER_RADIUS.sm,
+    backgroundColor: 'rgba(25, 153, 232, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: SPACING.sm,
+  },
   
   // Guardian Card
   guardianHeader: {
@@ -753,6 +1124,12 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.sm,
     color: COLORS.successDark,
     lineHeight: 18,
+    marginBottom: SPACING.sm,
+  },
+  guardianNote: {
+    ...TYPOGRAPHY.xs,
+    color: COLORS.successDark,
+    fontStyle: 'italic',
     marginBottom: SPACING.sm,
   },
   relationshipBadge: {
@@ -953,6 +1330,74 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.base,
     fontWeight: '600',
     color: COLORS.primary,
+  },
+  
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    padding: SPACING.lg,
+  },
+  modalContent: {
+    backgroundColor: COLORS.white,
+    borderRadius: BORDER_RADIUS.lg,
+    padding: SPACING.lg,
+    ...SHADOWS.lg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+  },
+  modalTitle: {
+    ...TYPOGRAPHY.lg,
+    fontWeight: '700',
+    color: COLORS.gray800,
+    flex: 1,
+  },
+  modalInput: {
+    backgroundColor: COLORS.gray50,
+    borderRadius: BORDER_RADIUS.md,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.gray300,
+    ...TYPOGRAPHY.base,
+    color: COLORS.gray800,
+    marginBottom: SPACING.lg,
+    textAlignVertical: 'top',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: SPACING.md,
+  },
+  modalCancelButton: {
+    flex: 1,
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.gray200,
+    alignItems: 'center',
+  },
+  modalCancelButtonText: {
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
+    color: COLORS.gray700,
+  },
+  modalSaveButton: {
+    flex: 1,
+    padding: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+  },
+  modalSaveButtonDisabled: {
+    backgroundColor: COLORS.gray300,
+  },
+  modalSaveButtonText: {
+    ...TYPOGRAPHY.base,
+    fontWeight: '600',
+    color: COLORS.white,
   },
 });
 

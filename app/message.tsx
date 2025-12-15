@@ -92,6 +92,7 @@ const MessagesScreen = () => {
   const [uploadingFile, setUploadingFile] = useState(false);
   const [fcmToken, setFcmToken] = useState<string>('');
   const [notificationPermission, setNotificationPermission] = useState<boolean>(false);
+  const [unreadMessages, setUnreadMessages] = useState<number>(0);
   
   const flatListRef = useRef<FlatList<Message>>(null);
   const [error, setError] = useState<string | null>(null);
@@ -136,11 +137,20 @@ const MessagesScreen = () => {
           const user = auth.currentUser;
           if (user) {
             try {
+              const pushTokenData = {
+                token: token,
+                platform: Platform.OS,
+                deviceId: Device.modelName || 'Unknown',
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+              };
+
               await update(ref(database, `users/${user.uid}`), {
                 expoPushToken: token,
-                tokenUpdated: Date.now(),
-                deviceId: Device.modelName || 'Unknown',
-                platform: Platform.OS
+                pushToken: pushTokenData,
+                tokenUpdatedAt: Date.now(),
+                devicePlatform: Platform.OS,
+                deviceModel: Device.modelName
               });
               console.log('✅ Expo Push token stored in database');
             } catch (dbError) {
@@ -152,7 +162,7 @@ const MessagesScreen = () => {
           const notificationReceivedSubscription = Notifications.addNotificationReceivedListener(notification => {
             console.log('📱 Notification received in foreground:', notification.request.content.data);
             
-            const data = notification.request.content.data;
+            const data = notification.request.content.data as any;
             if (data.type === 'teacher_message' && data.studentId) {
               // Refresh messages if it's for current student
               if (selectedStudent?.id === data.studentId) {
@@ -165,7 +175,7 @@ const MessagesScreen = () => {
           const notificationResponseSubscription = Notifications.addNotificationResponseReceivedListener(response => {
             console.log('📱 Notification tapped:', response.notification.request.content.data);
             
-            const data = response.notification.request.content.data;
+            const data = response.notification.request.content.data as any;
             if (data.type === 'teacher_message') {
               // Mark message as read
               if (data.studentId && data.messageId) {
@@ -176,7 +186,7 @@ const MessagesScreen = () => {
               // Navigate to messages screen if not already there
               setTimeout(() => {
                 if (router && typeof router.push === 'function') {
-                  router.push('./messages');
+                  router.push('/message');
                 }
               }, 100);
             }
@@ -192,13 +202,18 @@ const MessagesScreen = () => {
           const lastNotification = await Notifications.getLastNotificationResponseAsync();
           if (lastNotification) {
             console.log('📱 App opened from notification:', lastNotification.notification.request.content.data);
-            const data = lastNotification.notification.request.content.data;
+            const data = lastNotification.notification.request.content.data as any;
             if (data.type === 'teacher_message' && data.studentId) {
               // Mark as read
               if (data.messageId) {
                 const messageRef = ref(database, `messages/${data.studentId}/${data.messageId}`);
                 update(messageRef, { read: true });
               }
+              
+              // Navigate to messages
+              setTimeout(() => {
+                router.push('/message');
+              }, 300);
             }
           }
         } else {
@@ -546,12 +561,19 @@ const MessagesScreen = () => {
         console.log('📬 ============ MESSAGES LOADED ============');
         console.log(`📬 Total messages: ${messagesArray.length}`);
         
+        // Count unread teacher messages
+        const unreadCount = messagesArray.filter(msg => 
+          msg.sender === 'teacher' && !msg.read
+        ).length;
+        setUnreadMessages(unreadCount);
+        
         setMessages(messagesArray);
         console.log('📬 setMessages() called! State should update.');
 
       } else {
         console.log('ℹ️ No messages found for student:', studentId);
         setMessages([]);
+        setUnreadMessages(0);
       }
       
       if (clearLoadingTimeout) clearLoadingTimeout();
@@ -560,6 +582,7 @@ const MessagesScreen = () => {
       console.warn('⚠️ Error loading messages:', error);
       setError('Failed to load messages. Please check Firebase rules.');
       setMessages([]);
+      setUnreadMessages(0);
       
       if (clearLoadingTimeout) clearLoadingTimeout();
       setLoading(false);
@@ -1035,6 +1058,7 @@ const MessagesScreen = () => {
                   ? (fcmToken ? '🔔 Notifications active' : '⏳ Setting up...')
                   : '🔕 Notifications disabled'
                 }
+                {unreadMessages > 0 && ` • ${unreadMessages} unread`}
               </Text>
             </View>
           </View>

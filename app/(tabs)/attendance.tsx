@@ -424,11 +424,12 @@ const AttendanceHistory = () => {
       };
     }
     if (dayInfo.isHoliday) {
+      const holidayName = HOLIDAY_MAP[dayInfo.date];
       return {
-        status: HOLIDAY_MAP[dayInfo.date] || 'Holiday',
+        status: holidayName || 'Holiday',
         color: COLORS.gray500,
         icon: 'flag' as IoniconsName,
-        description: 'No class today (holiday)'
+        description: holidayName || 'Holiday'
       };
     }
     if (!dayInfo.attendance) {
